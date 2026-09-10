@@ -1,0 +1,16 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wrapper para integrar FastAPI con los pipelines de Turbo. Requiere venv activado (.venv/Scripts/Activate.ps1 en Windows).",
+  "scripts": {
+    "dev": "python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "build": "python -c \"print('No build step for FastAPI dev')\"",
+    "lint": "python -m ruff check .",
+    "format": "python -m ruff format .",
+    "typecheck": "python -m mypy app",
+    "test": "python -m pytest",
+    "migrate": "python -m alembic upgrade head",
+    "migrate:rev": "python -m alembic revision --autogenerate -m"
+  }
+}

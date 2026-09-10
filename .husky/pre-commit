@@ -1,0 +1,9 @@
+# Formatea con Prettier sólo los archivos que van en el commit (lint-staged).
+# No bloquea el commit cuando falta pnpm, por ejemplo en un servidor que sólo
+# corre la stack con Docker: avisa y deja pasar. Para saltarlo a propósito:
+# git commit --no-verify
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm lint-staged
+else
+  echo "husky: pnpm no está en PATH; se omite lint-staged" >&2
+fi

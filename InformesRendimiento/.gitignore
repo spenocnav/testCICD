@@ -1,0 +1,69 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+venv/
+.venv/
+ENV/
+env/
+
+.env
+.env.*
+!.env.example
+.session_cache.json
+
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.tmp
+*.temp
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+dist/
+build/
+*.egg-info/
+
+# Node / frontend artifacts
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn-cache/
+.parcel-cache/
+.cache/
+.eslintcache
+*.tsbuildinfo
+vite.svg
+
+# Vite caches
+.vite/
+frontend/.vite/
+frontend/node_modules/
+
+# Local generated reports/assets
+reporte_*.html
+Presentaci*.html
+
+# Local lakehouse simulation output
+modelo relacional/lakehouse_local/
+index.html
+*.parquet
+data_lake/
+.parquet
+.tmp_chrome_profile/
+.tmp_chrome_profile/*
+tmp_chrome_profile/
+
+# Estado local del watermark legado; lo escribe utils.py en tiempo de ejecución.
+estado_ejecucion.json

@@ -1,0 +1,211 @@
+# Overlay de OPERACIÓN. No modifica la aplicación: sólo añade límites,
+# endurecimiento y parámetros de arranque sobre los servicios que ya define
+# docker-compose.yml + docker-compose.prod.yml.
+#
+# Se apila SIEMPRE en tercer lugar:
+#   docker compose --env-file deploy/production.env \
+#     -f docker-compose.yml -f docker-compose.prod.yml -f deploy/compose.ops.yml \
+#     --profile full <comando>
+#
+# Los valores de memoria y de PostgreSQL están calibrados para el ENSAYO en
+# Docker Desktop (portátil). Para la VM de Azure hay que subirlos: ver la
+# sección "VM" en cada bloque.
+
+# Red corporativa de Navitrans: un proxy transparente intercepta HTTP en el
+# puerto 80 y devuelve índices y paquetes .deb desfasados. `apt-get install`
+# falla con "Hash Sum mismatch" y ficheros de hace meses. Comprobado: por HTTPS
+# funciona.
+#
+# En vez de tocar el Dockerfile del equipo dueño, se sustituye la imagen base
+# por una idéntica con los orígenes de apt en HTTPS, usando la sustitución de
+# contexto con nombre de BuildKit. Construir una vez con:
+#
+#   docker build -t portal-base:py312-https -f deploy/base-apt-https.Dockerfile .
+#
+# Fuera de esta red no hace falta: basta con quitar `build` de cada servicio.
+x-apt-https: &apt-https
+  additional_contexts:
+    - "python:3.12-slim=docker-image://portal-base:py312-https"
+
+services:
+  # --------------------------------------------------------------------
+  # PostgreSQL
+  # --------------------------------------------------------------------
+  # Hoy corre con los defaults de la imagen (128 MB de shared_buffers). Sin
+  # shm_size, las consultas analíticas en paralelo fallan con
+  # "could not resize shared memory segment".
+  postgres:
+    shm_size: 1gb
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB # VM: 6GB
+      - -c
+      - effective_cache_size=3GB # VM: 18GB
+      - -c
+      - work_mem=16MB # VM: 32MB
+      - -c
+      - maintenance_work_mem=256MB # VM: 1GB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_wal_size=2GB # VM: 4GB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - log_min_duration_statement=2000
+    mem_limit: 3g
+    cpus: 2
+
+  redis:
+    mem_limit: 256m
+    cpus: 0.5
+
+  minio:
+    # El corpus son 222.935 objetos inmutables: el escáner continuo gasta CPU
+    # para nada.
+    environment:
+      MINIO_SCANNER_SPEED: slowest
+    mem_limit: 1g
+    cpus: 1
+
+  # --------------------------------------------------------------------
+  # API
+  # --------------------------------------------------------------------
+  api:
+    build: *apt-https
+    # --workers    : la imagen arranca un solo proceso; el documento de
+    #                capacidad de TIC asume 2-4.
+    # --proxy-headers + --forwarded-allow-ips: sin esto TODAS las peticiones
+    #                llegan con la IP del contenedor `web` (que hace de proxy),
+    #                el rate limit por IP deja de distinguir clientes y la IP
+    #                registrada en refresh_tokens es inútil para forense.
+    #
+    # ATENCIÓN VM: "*" confía en la cabecera X-Forwarded-For de CUALQUIER
+    # origen. Es aceptable en un ensayo local cerrado. En la VM debe ser la
+    # subred concreta del proxy inverso, nunca "*".
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "2"
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - "*"
+    environment:
+      # ENSAYO LOCAL: con "production" las cookies salen Secure y el navegador
+      # las descarta sobre http://localhost -> el login parece funcionar pero
+      # nunca queda sesión. Además la API se niega a arrancar si CORS_ORIGINS
+      # contiene localhost. "staging" mantiene TODA la validación de secretos.
+      # En la VM (con TLS y dominio) esto vuelve a "production".
+      ENVIRONMENT: staging
+      # El techo de bcrypt es POR PROCESO. Con 2 workers el techo efectivo se
+      # duplica; con el default de 4 serían 8 hilos de bcrypt saturando la CPU.
+      PASSWORD_HASH_MAX_CONCURRENCY: "1"
+      # Ensayo sin integraciones externas: nada debe salir a CloudFleet.
+      CLOUDFLEET_METER_SYNC_ENABLED: "false"
+      NAVIFAULT_LLM_ENABLED: "false"
+      NAVIFAULT_LLM_SWEEP_ENABLED: "false"
+    mem_limit: 1g
+    cpus: 2
+    security_opt:
+      - no-new-privileges:true
+
+  # --------------------------------------------------------------------
+  # Frontend
+  # --------------------------------------------------------------------
+  web:
+    # La imagen de producción no trae HEALTHCHECK: sin esto Docker no sabe
+    # que el proceso murió y no lo reinicia.
+    #
+    # 127.0.0.1 y NO localhost: dentro del contenedor `localhost` resuelve
+    # primero a ::1 y el servidor de Next.js escucha sólo en IPv4 (0.0.0.0),
+    # así que con `localhost` el healthcheck da "Connection refused" mientras
+    # el sitio responde 200 perfectamente desde fuera.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/login"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 1
+    security_opt:
+      - no-new-privileges:true
+
+  # --------------------------------------------------------------------
+  # Workers
+  # --------------------------------------------------------------------
+  # Todos comparten el mismo perfil de ensayo: sin salidas a sistemas externos.
+  novedad-worker:
+    build: *apt-https
+    environment:
+      ENVIRONMENT: staging
+    mem_limit: 384m
+    cpus: 0.5
+    security_opt:
+      - no-new-privileges:true
+
+  auth-housekeeping:
+    build: *apt-https
+    environment:
+      ENVIRONMENT: staging
+    mem_limit: 384m
+    cpus: 0.5
+    security_opt:
+      - no-new-privileges:true
+
+  # Escribe odómetro/horómetro REALES en CloudFleet y consulta Navi Vehículos.
+  # Apagado en el ensayo. En la VM: DAILY_SYNC_ENABLED=true y DAILY_SYNC_AT=01:00
+  # (el compose del repo lo deja en 04:00, que solapa con la jornada).
+  daily-sync-worker:
+    build: *apt-https
+    environment:
+      ENVIRONMENT: staging
+      DAILY_SYNC_ENABLED: "false"
+      DAILY_SYNC_AT: "01:00"
+    mem_limit: 384m
+    cpus: 0.5
+    security_opt:
+      - no-new-privileges:true
+
+  # Consulta y escala contra CloudFleet cada 15 min. Apagado en el ensayo.
+  navifault-escalation-watch:
+    build: *apt-https
+    environment:
+      ENVIRONMENT: staging
+      NAVIFAULT_ESCALATION_WATCH_ENABLED: "false"
+    mem_limit: 384m
+    cpus: 0.5
+    security_opt:
+      - no-new-privileges:true
+
+  navifault-client-description-worker:
+    build: *apt-https
+    environment:
+      ENVIRONMENT: staging
+      NAVIFAULT_LLM_ENABLED: "false"
+      NAVIFAULT_LLM_SWEEP_ENABLED: "false"
+    mem_limit: 384m
+    cpus: 0.5
+    security_opt:
+      - no-new-privileges:true
+
+  migrate:
+    build: *apt-https
+    environment:
+      ENVIRONMENT: staging
+    mem_limit: 512m
+
+  # El ETL reconstruye la historia en memoria con pandas: 6-12 GB reales.
+  # En el ensayo se levanta con réplicas 0 (ver deploy-local.ps1).
+  reportes-etl-worker:
+    build: *apt-https
+    environment:
+      ENVIRONMENT: staging
+    mem_limit: 4g # VM: 12g
+    cpus: 2

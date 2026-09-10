@@ -1,0 +1,18 @@
+node_modules
+.next
+.turbo
+dist
+build
+coverage
+**/.venv
+**/__pycache__
+**/alembic/versions
+pnpm-lock.yaml
+
+# Artefactos generados por `pnpm gen:types`. Su formato lo fija el generador
+# (json.dumps sort_keys en export_openapi.py, openapi-typescript en el .ts), y
+# el hook de pre-commit los reformateaba: eso rompía tanto
+# `export_openapi.py --check` como el `git diff --exit-code` que exige el
+# contrato de API. No editar a mano; se regeneran.
+apps/api/openapi.json
+packages/shared-types/index.ts

@@ -1,0 +1,64 @@
+# Node
+node_modules/
+.pnpm-store/
+.turbo/
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.eslintcache
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+deploy/production.env
+deploy/tracking-worker.env
+deploy/tracking-ingest.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+
+# Sentry
+.sentryclirc
+
+# Docker
+.docker-data/
+
+
+# ETL de reportes (InformesRendimiento): forma parte de este repositorio.
+# Sus datos locales quedan cubiertos por su propio .gitignore.
+
+# Mockup KPI Cloudfleet (material de referencia, no se versiona)
+KpiCloudfleet.zip
+KpiCloudfleet/
+
+# Worker de seguimiento Cloudfleet (artefacto recibido, no se versiona)
+seguimiento_etiquetas_produccion.zip
+
+UNIFICACION_DISENO.md

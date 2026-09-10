@@ -1,0 +1,103 @@
+# CD del ENSAYO LOCAL: cada commit a la rama de trabajo despliega el portal
+# en el Docker Desktop de la máquina donde corre el agente self-hosted.
+#
+# Registrar en Azure DevOps como pipeline NUEVO (no reemplaza azure-pipelines.yml,
+# que sigue siendo la CI del repositorio):
+#   Pipelines -> New pipeline -> Azure Repos Git -> nav-portal-clientes-exp
+#   -> Existing Azure Pipelines YAML file -> /deploy/azure-pipelines-cd-local.yml
+#
+# Requisitos previos en Azure DevOps:
+#   1. Agent pool self-hosted llamado `docker-desktop-local` con el agente
+#      corriendo BAJO TU USUARIO (no como servicio de sistema: no alcanzaría
+#      el named pipe de Docker Desktop).
+#   2. Secure File llamado `portal-clientes-ensayo.env` con el contenido de
+#      deploy/production.env. Pipelines -> Library -> Secure files -> Upload.
+#      El archivo nunca entra al repositorio.
+
+trigger:
+  branches:
+    include:
+      - desarrollo-tic
+  paths:
+    exclude:
+      - Docs/**
+      - "**/*.md"
+
+pr: none
+
+pool:
+  name: docker-desktop-local
+
+variables:
+  - name: ENV_FILE
+    value: deploy/production.env
+  - name: STACK
+    value: core
+
+steps:
+  - checkout: self
+    clean: false
+    fetchDepth: 1
+    displayName: Obtener el código
+
+  - task: DownloadSecureFile@1
+    name: envfile
+    displayName: Descargar secretos del ensayo
+    inputs:
+      secureFile: portal-clientes-ensayo.env
+
+  - powershell: |
+      Copy-Item "$(envfile.secureFilePath)" "$(ENV_FILE)" -Force
+      Write-Host "Entorno materializado en $(ENV_FILE)"
+    displayName: Materializar el archivo de entorno
+
+  # La construcción hace de puerta de calidad: `docker compose build` ejecuta
+  # pnpm install --frozen-lockfile, next build y pip install. Si el lockfile
+  # está desincronizado o el TypeScript no compila, el pipeline se pone rojo
+  # antes de tocar los contenedores en servicio.
+  #
+  # NO sustituye a la CI real (lint, mypy, 657 pruebas de pytest, vitest). Esa
+  # vive en azure-pipelines.yml.
+  #
+  # Estado del paralelismo en esta organización (comprobado 2026-09-09, en
+  # Project Settings -> Parallel jobs, proyecto privado):
+  #   Microsoft-hosted : 1 trabajo paralelo comprado -> la CI SÍ arranca, pero
+  #                      sus tres jobs (web, api, etl) corren EN SERIE.
+  #   Self-hosted      : 11 (1 gratis + 10 de suscriptores VS Enterprise).
+  #                      Suficiente para este CD; con 1 bastaría.
+  #                      Aviso: hay 5 suscriptores VS Enterprise vencidos, así
+  #                      que esa capacidad puede bajar con el tiempo.
+  #
+  # Por qué NO se encadena todavía a la CI: azure-pipelines.yml sólo dispara en
+  # las ramas `desarrollo` y `main`. En `desarrollo-tic` no corre, así que un
+  # `resources.pipelines` no se activaría nunca. Ampliar esa lista exige tocar
+  # un archivo del equipo dueño.
+  #
+  # Dos salidas cuando se quiera la puerta de calidad completa:
+  #   (a) Al integrar esta rama en `desarrollo`, descomentar el bloque de abajo.
+  #   (b) Pedir al equipo dueño que añada `desarrollo-tic` al trigger de su CI.
+  #
+  # resources:
+  #   pipelines:
+  #     - pipeline: ci
+  #       source: nav-portal-clientes-exp-CI   # nombre real del pipeline de CI
+  #       trigger:
+  #         branches: [ desarrollo ]
+
+  - powershell: |
+      ./deploy/deploy-local.ps1 -Stack "$(STACK)" -EnvFile "$(ENV_FILE)"
+    displayName: Desplegar y comprobar salud
+    failOnStderr: false
+
+  - powershell: |
+      Remove-Item "$(ENV_FILE)" -Force -ErrorAction SilentlyContinue
+      Write-Host "Archivo de entorno retirado del área de trabajo"
+    displayName: Limpiar secretos
+    condition: always()
+
+  # Sólo los contenedores del portal: esta máquina aloja otras pilas y el
+  # informe no debe tocarlas ni listarlas.
+  - powershell: |
+      docker ps --filter "name=portal-cliente" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    displayName: Estado final
+    condition: always()

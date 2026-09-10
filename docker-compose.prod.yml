@@ -1,0 +1,258 @@
+x-logging: &production-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    ports: !reset []
+    logging: *production-logging
+
+  redis:
+    ports: !reset []
+    logging: *production-logging
+
+  minio:
+    ports: !reset []
+    logging: *production-logging
+
+  minio-init:
+    logging: *production-logging
+
+  migrate:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: production
+    container_name: portal-cliente-migrate
+    restart: "no"
+    env_file: !override
+      - ${PRODUCTION_ENV_FILE:-deploy/production.env}
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_LOCAL: ""
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *production-logging
+    profiles: ["full"]
+
+  api:
+    build:
+      target: production
+    env_file: !override
+      - ${PRODUCTION_ENV_FILE:-deploy/production.env}
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_LOCAL: ""
+      REDIS_URL: ${REDIS_URL}
+      REDIS_URL_LOCAL: ""
+    ports: !reset []
+    volumes: !reset []
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *production-logging
+
+  novedad-worker:
+    build:
+      target: production
+    env_file: !override
+      - ${PRODUCTION_ENV_FILE:-deploy/production.env}
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_LOCAL: ""
+      REDIS_URL: ${REDIS_URL}
+      REDIS_URL_LOCAL: ""
+    volumes: !reset []
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *production-logging
+
+  # Sin esta entrada el worker nace root, con el árbol de trabajo montado en
+  # RW y sin esperar a las migraciones. Es lo que SEC-012 documenta de los
+  # workers que quedaron fuera del overlay.
+  navifault-escalation-watch:
+    build:
+      target: production
+    env_file: !override
+      - ${PRODUCTION_ENV_FILE:-deploy/production.env}
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_LOCAL: ""
+    volumes: !reset []
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *production-logging
+
+  auth-housekeeping:
+    build:
+      target: production
+    env_file: !override
+      - ${PRODUCTION_ENV_FILE:-deploy/production.env}
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_LOCAL: ""
+    volumes: !reset []
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *production-logging
+
+  daily-sync-worker:
+    build:
+      target: production
+    env_file: !override
+      - ${PRODUCTION_ENV_FILE:-deploy/production.env}
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_LOCAL: ""
+      DAILY_SYNC_ENABLED: "true"
+      DAILY_SYNC_AT: "04:00"
+      DAILY_SYNC_TIMEZONE: "America/Bogota"
+    volumes: !reset []
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *production-logging
+
+  seguimiento-etiquetas-worker:
+    build:
+      context: ./workers/seguimiento_etiquetas
+      dockerfile: Dockerfile
+    env_file: !override
+      - ${TRACKING_WORKER_ENV_FILE:-deploy/tracking-worker.env}
+    # `!override` replaces the base map instead of merging it. Without it the
+    # base `CLOUDFLEET_API_KEY: ${CLOUDFLEET_API_KEY:-}` would win over the env
+    # file (environment beats env_file) and interpolate the secret into
+    # `docker compose config`, `docker inspect` and CI logs. The credential now
+    # lives only in the env file.
+    environment: !override
+      ENVIRONMENT: production
+      TRACKING_RUNTIME_DIR: /runtime
+      TRACKING_POLL_INTERVAL_SECONDS: "300"
+      TRACKING_MAX_ORDERS_PER_CYCLE: "60"
+      TRACKING_COVERAGE_SLA_SECONDS: "1800"
+    # `!override`, not `!reset`: `!reset` nulls the key and discards the list,
+    # leaving the worker with no runtime volume while `read_only: true` blocks
+    # every write.
+    volumes: !override
+      - tracking_runtime:/runtime
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    logging: *production-logging
+
+  tracking-ingest-worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: production
+    env_file: !override
+      - ${TRACKING_INGEST_ENV_FILE:-deploy/tracking-ingest.env}
+    # `!override` so the base `DATABASE_URL: ${DATABASE_URL:-}` does not shadow
+    # the env file: environment beats env_file, and the base value interpolates
+    # whatever sits in the repo-root `.env` (the development DSN).
+    environment: !override
+      ENVIRONMENT: production
+      TRACKING_RUNTIME_DIR: /tracking-runtime
+      TRACKING_INGEST_INTERVAL_SECONDS: "30"
+    volumes: !override
+      - tracking_runtime:/tracking-runtime:ro
+    command: ["python", "scripts/ingest_cloudfleet_tracking.py", "--loop"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *production-logging
+
+  navifault-client-description-worker:
+    build:
+      target: production
+    env_file: !override
+      - ${PRODUCTION_ENV_FILE:-deploy/production.env}
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_LOCAL: ""
+    volumes: !reset []
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *production-logging
+
+  # ETL de reportes: el código va dentro de la imagen, corre sin root y escribe
+  # el lago Parquet y su estado local en el volumen `etl_data`, nunca sobre el
+  # código. Toma MASTER_FERNET_KEY del mismo archivo de entorno del portal; las
+  # URLs de base de datos las fija el compose base desde DATABASE_URL. Espera a
+  # las migraciones porque lee y escribe tablas del schema public
+  # (etl_trigger_request, sync_run, geotab_credentials).
+  reportes-etl-worker:
+    build:
+      target: production
+    env_file: !override
+      - ${PRODUCTION_ENV_FILE:-deploy/production.env}
+    environment:
+      ETL_DATA_LAKE_DIR: /var/lib/etl/data_lake
+      ETL_STATE_DIR: /var/lib/etl/state
+    volumes: !override
+      - etl_data:/var/lib/etl
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *production-logging
+
+  web:
+    build:
+      target: production
+    env_file: !reset []
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ""
+      API_PROXY_TARGET: http://api:8000
+    volumes: !reset []
+    logging: *production-logging
+    # `web` es la única entrada pública del portal y la única pieza que se une
+    # a la red externa `navi-red-central`, donde viven cloudflared y los proxies
+    # de las demás stacks. Ahí hay que referirla por su nombre único
+    # (`portal-cliente-web:3000`), nunca por el alias corto `web`, que ya lo
+    # publican otras stacks.
+    #
+    # `api`, `postgres`, `redis` y `minio` NO entran a propósito: en esa red
+    # `navi-transformation-hub` resuelve `api`, `redis` y `postgres` por alias
+    # corto; si el portal publicara los mismos nombres, esos alias quedarían
+    # ambiguos y el hub terminaría hablando con la base o el Redis equivocado
+    # (el mismo defecto que Navi Vehículos ya documentó con `minio`). La API
+    # llega a Navi Vehículos por su URL configurada, como hoy.
+    networks:
+      - default
+      - red-central
+
+volumes:
+  # Lago Parquet, manifests de carga y estado local del ETL.
+  etl_data:
+
+networks:
+  default:
+  # Red externa compartida por las stacks del servidor. La crea el operador,
+  # no este compose; sólo existe en el overlay productivo para que un `up` de
+  # desarrollo en una máquina sin esa red no falle.
+  red-central:
+    external: true
+    name: navi-red-central

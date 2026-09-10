@@ -1,0 +1,56 @@
+# Instancia de COMPARACIÓN del frontend: el mismo código que sirve `web`, pero
+# construido y servido como build de producción, en otro puerto y contra la
+# MISMA API, la misma base y la misma sesión.
+#
+# Existe para poder medir. `web` corre `pnpm dev`, que compila cada ruta cuando
+# alguien la pide: medido sobre 24 h de sus propios logs, la mediana de servicio
+# por ruta es de 4 a 6 s YA compilada y hay compilaciones en frío de 480 s
+# (PERF-025). Mientras el portal se sirva así, ninguna medición de frontend
+# —bundle, hidratación, LCP— dice nada sobre producción.
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.web-prod.yml \
+#     up -d --no-deps --build web-prod
+#
+# `--no-deps` es importante: sin él, compose intentaría levantar las
+# dependencias y podría recrear servicios que están en servicio.
+#
+# Para darlo de baja cuando termine la comparación:
+#   docker compose -f docker-compose.yml -f docker-compose.web-prod.yml \
+#     down --remove-orphans web-prod
+#
+# NO reemplaza a `web`. Las cookies de sesión no distinguen el puerto, así que
+# ambas instancias comparten la sesión del navegador en el mismo host: se puede
+# saltar de una a otra sin volver a entrar, pero cerrar sesión en una la cierra
+# en las dos.
+
+services:
+  web-prod:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: production
+      args:
+        # `next.config.mjs` resuelve los rewrites en tiempo de BUILD y los
+        # serializa en el manifiesto de rutas, así que este destino tiene que
+        # entrar como argumento de construcción; ponerlo solo en el entorno del
+        # contenedor llegaría tarde. `api` es el alias del servicio en la red.
+        API_PROXY_TARGET: http://api:8000
+    image: navi-portal-clientes-web-prod:comparacion
+    container_name: portal-cliente-web-prod
+    # Deliberadamente sin reinicio automático: es una instancia temporal de
+    # comparación y no debe resucitar sola tras un reinicio del host.
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ""
+      API_PROXY_TARGET: http://api:8000
+    ports:
+      - "${WEB_PROD_PORT:-3011}:3000"
+    # Sin volúmenes a propósito: el código va DENTRO de la imagen. Es la
+    # diferencia que se quiere medir.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

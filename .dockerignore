@@ -1,0 +1,17 @@
+*
+
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.base.json
+
+!apps
+!apps/web
+!apps/web/**
+apps/web/Dockerfile
+apps/web/.next
+apps/web/node_modules
+
+!packages
+!packages/**
+packages/**/node_modules

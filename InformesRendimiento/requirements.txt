@@ -1,0 +1,9 @@
+mygeotab
+pandas
+numpy
+pyarrow
+requests
+python-dotenv
+sqlalchemy>=2.0
+psycopg[binary]>=3.1
+cryptography>=43.0.0

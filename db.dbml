@@ -1,0 +1,746 @@
+// ============================================================
+// Navi Portal Clientes — Esquema de base de datos (DBML)
+// Fuente: apps/api/app/models/*  (SQLAlchemy)
+// Base física PostgreSQL con dos espacios lógicos:
+//   - public    : gestionado por Alembic (OLTP + réplicas + config ETL)
+//   - analytics : output del ETL (InformesRendimiento), read-only en el API.
+//                 Las FK de analytics NO se declaran en los modelos (a
+//                 propósito); aquí se documentan como Ref para claridad.
+// ============================================================
+
+Project navi_portal_clientes {
+  database_type: 'PostgreSQL'
+  Note: 'Portal Clientes: auth/RBAC, réplicas Navi Vehículos + CloudFleet, novedades, sync/ETL y analytics semántico.'
+}
+
+// ============================================================
+// AUTH / RBAC  (public)
+// ============================================================
+
+Table users {
+  id uuid [pk]
+  email citext [not null, unique, note: 'CITEXT, único global']
+  password_hash text [not null]
+  full_name text [not null]
+  is_active boolean [not null, default: true]
+  last_login_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table roles {
+  id uuid [pk]
+  code text [not null, unique]
+  name text [not null]
+  description text
+  is_system boolean [not null, default: false]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table permissions {
+  id uuid [pk]
+  code text [not null, unique, note: 'ej. users.read']
+  description text
+  resource text
+  action text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table modules {
+  id uuid [pk]
+  code text [not null, unique]
+  name text [not null]
+  description text
+  order int [not null, default: 0]
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table user_roles {
+  user_id uuid [not null]
+  role_id uuid [not null]
+
+  indexes {
+    (user_id, role_id) [pk]
+  }
+}
+
+Table role_permissions {
+  role_id uuid [not null]
+  permission_id uuid [not null]
+
+  indexes {
+    (role_id, permission_id) [pk]
+  }
+}
+
+Table refresh_tokens {
+  id uuid [pk]
+  user_id uuid [not null]
+  token_hash text [not null, unique, note: 'solo hash almacenado']
+  expires_at timestamptz [not null]
+  revoked_at timestamptz
+  user_agent text
+  ip text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    expires_at [name: 'ix_refresh_tokens_expires_at']
+    revoked_at [name: 'ix_refresh_tokens_revoked_at_open', note: 'parcial WHERE revoked_at IS NOT NULL']
+  }
+}
+
+// ============================================================
+// FLOTAS + réplica maestra Navi Vehículos  (public)
+// ============================================================
+
+Table fleets {
+  id uuid [pk]
+  source_id bigint [unique, note: 'customers.id en Navi Vehículos; NULL si creada a mano']
+  code text [not null, unique]
+  name text [not null]
+  is_active boolean [not null, default: true]
+  synced_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table user_fleets {
+  user_id uuid [not null]
+  fleet_id uuid [not null]
+
+  indexes {
+    (user_id, fleet_id) [pk]
+  }
+}
+
+Table geotab_databases {
+  id uuid [pk]
+  source_id bigint [unique, note: 'customer_databases.id en Navi Vehículos']
+  fleet_id uuid [not null]
+  database_name text [not null]
+  database_key text [not null, note: 'db física compartida (lowercase)']
+  connection_type text [not null, default: 'geotab']
+  plate_prefix text
+  is_active boolean [not null, default: true]
+  synced_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (fleet_id, database_name) [unique, name: 'uq_geotab_db_fleet_name']
+    database_key [name: 'ix_geotab_databases_key']
+  }
+}
+
+Table geotab_credentials {
+  id uuid [pk]
+  source_id bigint [unique]
+  geotab_database_id uuid [not null]
+  username text [not null]
+  password_enc bytea [not null, note: 'cifrada Fernet']
+  label text
+  is_active boolean [not null, default: true]
+  last_used_at timestamptz [note: 'rotación LRU']
+  synced_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (geotab_database_id, username) [unique, name: 'uq_credential_db_username']
+  }
+}
+
+Table geotab_rules {
+  id uuid [pk]
+  source_id bigint [unique]
+  geotab_database_id uuid [not null]
+  rule_id text [not null, note: 'id nativo Geotab']
+  name text [not null]
+  is_active boolean [not null, default: true]
+  synced_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (geotab_database_id, rule_id) [unique, name: 'uq_geotab_rule_db_rule']
+  }
+}
+
+Table geotab_rule_applications {
+  id uuid [pk]
+  source_id bigint [unique]
+  geotab_rule_id uuid [not null]
+  category text [not null, note: "CHECK: 'operacion' | 'habito_seguro'"]
+  event_type text [note: 'semántica estable, ej. exceso_rpm']
+  motor_type text [note: 'FK motor_catalog; NULL = toda la base']
+  is_active boolean [not null, default: true]
+  synced_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (geotab_rule_id, category, motor_type) [unique, name: 'uq_geotab_rule_app_non_null_motor', note: 'parcial WHERE motor_type IS NOT NULL']
+    (geotab_rule_id, category) [unique, name: 'uq_geotab_rule_app_null_motor', note: 'parcial WHERE motor_type IS NULL']
+  }
+}
+
+Table vehicles {
+  id uuid [pk]
+  plate text [not null, unique, note: 'clave natural']
+  vin text
+  geotab_device_id text
+  geotab_device_synced_at timestamptz
+  fleet_id uuid [note: 'réplica customer_id']
+  geotab_database_id uuid
+  geotab_customer_status text [not null, default: 'unknown', note: 'found|not_found|unknown|not_applicable']
+  engine_number text
+  technical_number text
+  cpl text
+  marca text
+  linea text
+  marketing_model_name text
+  service_model_name text
+  ano_modelo text
+  tipo_combustible text
+  nombre_vehiculo text
+  vocacional boolean [not null, default: false]
+  category text [not null, default: 'Ninguna', note: 'Ninguna | Experiencia Superior | Flota Administrada']
+  is_active boolean [not null, default: true]
+  synced_at timestamptz
+  motor_type text [note: 'FK motor_catalog; extensión local ETL']
+  group_key text
+  rpm_class text
+  tank_volume double
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    geotab_device_id [name: 'ix_vehicles_active_geotab_device_id', note: 'parcial WHERE device_id NOT NULL AND is_active']
+  }
+}
+
+// ---- Config local del ETL (no viene en snapshot) ----
+
+Table motor_catalog {
+  motor_type text [pk, note: 'ISD, F2.8, S13, ...']
+  description text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table motor_rules {
+  id uuid [pk]
+  motor_type text [not null]
+  rule_name text [not null]
+  rule_id text [not null]
+  categoria text [note: 'Rango RPM / RPM Descenso']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (motor_type, rule_name) [unique, name: 'uq_motor_rule_name']
+  }
+}
+
+Table rpm_rules {
+  id uuid [pk]
+  rpm_class text [not null]
+  rule_id text [not null]
+  ordinal int [not null, default: 1]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (rpm_class, ordinal) [unique, name: 'uq_rpm_rule_class_ordinal']
+  }
+}
+
+// ---- Estado/watermarks de extracción ----
+
+Table vehicle_extraction_state {
+  id uuid [pk]
+  vehicle_id uuid [not null]
+  dataset text [not null]
+  watermark timestamptz [note: 'próximo from_date; NULL=nunca corrió']
+  backfill_from timestamptz
+  last_run_at timestamptz
+  status text [not null, default: 'pending']
+  last_error text
+  version bigint [not null, default: 0]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (vehicle_id, dataset) [unique, name: 'uq_vehicle_extraction_vehicle_dataset']
+  }
+}
+
+Table sync_state {
+  key text [pk]
+  watermark timestamptz [note: 'generated_at de la última respuesta aplicada']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+// ============================================================
+// Réplica CloudFleet  (public, read-only del sync)
+// ============================================================
+
+Table cloudfleet_vehicles {
+  id uuid [pk]
+  code text [not null, unique, note: 'clave natural']
+  brand_name text
+  line_name text
+  type_name text
+  city text
+  cost_center text
+  primary_group text
+  group1 text
+  odometer double
+  hourmeter double
+  is_in_master boolean [not null, default: true]
+  raw jsonb [note: 'respuesta cruda CloudFleet']
+  synced_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table cloudfleet_work_orders {
+  id uuid [pk]
+  number bigint [not null, unique, note: 'clave natural']
+  vehicle_code text [not null]
+  status text
+  type text
+  reason text
+  detected_issue text
+  affects_vehicle_availability boolean [not null, default: false]
+  warranty boolean [not null, default: false]
+  start_date timestamptz
+  workshop_date timestamptz
+  technical_completion_date timestamptz
+  final_completion_date timestamptz
+  estimated_finish_date timestamptz
+  cf_created_at timestamptz
+  cf_updated_at timestamptz
+  cost_center text
+  city text
+  total_cost numeric
+  total_cost_labors numeric
+  total_cost_parts numeric
+  raw jsonb
+  synced_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    vehicle_code
+    status
+    start_date [name: 'ix_cf_wo_start_date']
+    technical_completion_date [name: 'ix_cf_wo_technical_completion_date']
+    (vehicle_code, technical_completion_date) [name: 'ix_cf_wo_vehicle_completion']
+  }
+}
+
+Table cloudfleet_maintenance_schedules {
+  id uuid [pk, note: 'sin clave natural única; idempotencia por replace-window']
+  consecutive bigint
+  vehicle_code text
+  status text
+  task_name text
+  routine_name text
+  schedule_type text
+  schedule_source text
+  date_to_execute timestamptz [not null]
+  date_to_execute_days_diff double
+  wo_number bigint
+  wo_execution_date timestamptz
+  raw jsonb
+  synced_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    vehicle_code
+    date_to_execute
+    (vehicle_code, date_to_execute) [name: 'ix_cf_sched_vehicle_due']
+  }
+}
+
+// ============================================================
+// Novedades + outbox transaccional  (public)
+// ============================================================
+
+Table novedades {
+  id uuid [pk]
+  vehicle_id uuid
+  fleet_id uuid
+  created_by_id uuid
+  vehicle_code text [not null]
+  reported_at timestamptz [not null]
+  reported_by_id int [not null]
+  priority text [not null, note: "CHECK: 'low'|'medium'|'high'"]
+  odometer "numeric(14,2)"
+  responsible_id int
+  associated_labor_id int
+  comment text
+  send_mail boolean [not null, default: false]
+  cloudfleet_status text [not null, default: 'pending', note: "CHECK: 'pending'|'sent'|'failed'"]
+  cloudfleet_issue_number int
+  cloudfleet_error text
+  cloudfleet_response jsonb
+  idempotency_key "varchar(128)"
+  request_fingerprint "varchar(64)"
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    vehicle_id
+    fleet_id
+    created_by_id
+    vehicle_code
+    (created_by_id, idempotency_key) [unique, name: 'uq_novedades_idem_per_user', note: 'parcial WHERE idempotency_key IS NOT NULL']
+    (fleet_id, reported_at) [name: 'ix_novedades_fleet_reported_at']
+  }
+}
+
+Table novedad_attachments {
+  id uuid [pk]
+  novedad_id uuid [not null]
+  bucket text [not null]
+  object_key text [not null]
+  filename text [not null]
+  content_type text [not null]
+  size_bytes int [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    novedad_id [name: 'ix_novedad_attachments_novedad_id']
+    object_key [unique, name: 'ix_novedad_attachments_object_key']
+  }
+}
+
+Table novedad_outbox {
+  id uuid [pk]
+  novedad_id uuid [not null, unique, note: 'uq_novedad_outbox_novedad_id']
+  status text [not null, default: 'pending', note: "CHECK: 'pending'|'processing'|'sent'|'failed'"]
+  attempts int [not null, default: 0]
+  available_at timestamptz [not null]
+  locked_at timestamptz
+  last_error text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (status, available_at, id) [name: 'ix_novedad_outbox_due']
+  }
+}
+
+// ============================================================
+// Auditoría de sync + coordinación ETL  (public)
+// ============================================================
+
+Table sync_run {
+  id uuid [pk]
+  kind "varchar(32)" [not null, note: 'cloudfleet | master | reportes']
+  trigger "varchar(16)" [not null, note: 'manual | worker | cli']
+  mode "varchar(16)" [not null, note: 'full | incremental']
+  status "varchar(16)" [not null, note: 'success | error']
+  started_at timestamptz [not null]
+  finished_at timestamptz [not null]
+  duration_ms int [not null]
+  result jsonb [note: 'conteos de la pasada']
+  error text
+  actor_user_id uuid [note: 'cuando trigger=manual']
+  actor_email "varchar(320)" [note: 'denormalizado']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    kind
+    status
+    started_at [name: 'ix_sync_run_started_at', note: 'DESC']
+    (kind, started_at) [name: 'ix_sync_run_kind_started_at', note: 'started_at DESC']
+  }
+}
+
+Table etl_trigger_request {
+  id uuid [pk]
+  status "varchar(16)" [not null, default: 'pending', note: 'pending→running→done|error']
+  started_at timestamptz
+  finished_at timestamptz
+  error text
+  requested_by_user_id uuid
+  requested_by_email "varchar(320)"
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    status
+    (status, created_at) [name: 'ix_etl_trigger_request_status_created']
+  }
+}
+
+Table etl_microbatch_commit {
+  id uuid [pk]
+  vehicle_id uuid [not null]
+  dataset "varchar(64)" [not null]
+  analytics_vehicle_id "varchar(64)" [not null]
+  window_start timestamptz [not null]
+  window_end timestamptz [not null]
+  pipeline_version "varchar(64)" [not null]
+  output_sha256 "varchar(64)" [not null]
+  raw_row_count bigint [not null]
+  fact_row_count bigint [not null]
+  comparison jsonb
+  committed_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (vehicle_id, dataset, window_start, window_end) [name: 'ix_etl_microbatch_vehicle_dataset_window']
+    committed_at [name: 'ix_etl_microbatch_committed_at']
+  }
+}
+
+// ============================================================
+// ANALYTICS (schema analytics) — output del ETL, read-only.
+// FKs NO declaradas en los modelos ORM; documentadas abajo.
+// ============================================================
+
+Table analytics.dim_vehicle {
+  vehicle_id text [pk]
+  database_name text
+  device_id text
+  vehicle_label text
+  motor_type text
+  group_key text
+  rpm_class text
+  is_active boolean
+}
+
+Table analytics.dim_rule {
+  rule_sk text [pk]
+  rule_id text
+  rule_name text
+  source_script text
+  scope_type text
+  scope_value text
+  categoria text
+}
+
+Table analytics.fact_combustible_daily {
+  fact_row_id text [pk]
+  vehicle_id text
+  database_name text
+  motor_type text
+  date_key int
+  fecha date
+  placa text
+  kms_ecm double
+  kms_gps double
+  hrs_ecm double
+  hrs_gps double
+  comb double
+  km_gal double
+  gal_hr double
+  velocidad_promedio double
+  km_gal_gps double
+  gal_hr_gps double
+  velocidad_promedio_gps double
+  pct_rango_bajo double
+  pct_rango_economico double
+  pct_rango_balanceado double
+  pct_rango_potencia double
+  pct_exceso_rpm double
+  pct_rango_potencia_ineficiente double
+  pct_ralenti_gps double
+  pct_ralenti_ecm double
+  pct_ralenti double
+  tiempo_total_en_rango double
+  ralenti double
+  ralenti_ecm double
+  tiempo_en_ralenti double
+  pct_rango_bajo_descenso double
+  pct_rango_economico_descenso double
+  pct_rango_balanceado_descenso double
+  pct_rango_potencia_descenso double
+  pct_exceso_rpm_descenso double
+  pct_rango_potencia_ineficiente_descenso double
+  tiempo_total_en_rango_de_descenso double
+  pct_rango_bajo_sin_descenso double
+  pct_rango_economico_sin_descenso double
+  pct_rango_balanceado_sin_descenso double
+  pct_rango_potencia_sin_descenso double
+  pct_exceso_rpm_sin_descenso double
+  pct_rango_potencia_ineficiente_sin_descenso double
+  tiempo_total_en_rango_sin_descenso double
+  revision boolean
+
+  indexes {
+    vehicle_id
+    date_key
+  }
+}
+
+Table analytics.fact_combustible_monthly {
+  fact_row_id text [pk]
+  vehicle_id text
+  database_name text
+  motor_type text
+  placa text
+  month_key int
+  month_start_date_key int
+  anio_mes text
+  kms_ecm double
+  hrs_ecm double
+  comb double
+  km_gal double
+  gal_hr double
+  velocidad_promedio double
+
+  indexes {
+    vehicle_id
+    month_key
+    month_start_date_key
+  }
+}
+
+Table analytics.fact_factor_carga_daily {
+  fact_row_id text [pk]
+  vehicle_id text
+  database_name text
+  date_key int
+  fecha date
+  placa text
+  factor_de_carga double [note: '% carga motor']
+
+  indexes {
+    vehicle_id
+    date_key
+  }
+}
+
+Table analytics.fact_pedal_reading {
+  row_id text [pk]
+  vehicle_id text
+  database_name text
+  date_key int
+  fecha date
+  placa text
+  fecha_y_hora timestamp
+  valor double [note: '% presión pedal']
+  unidad_de_medida text
+
+  indexes {
+    vehicle_id
+    date_key
+  }
+}
+
+Table analytics.fact_habito_event {
+  event_sk text [pk]
+  event_id text
+  vehicle_id text
+  database_name text
+  date_key int
+  rule_sk text
+  rule_id text
+  event_type text
+  fecha date
+  placa text
+  longitud double
+  latitud double
+  fecha_y_hora_del_evento timestamp
+  distancia_evento_mt double
+  evento_resumen text
+  duracion_evento double
+  observacion_corta text
+
+  indexes {
+    vehicle_id
+    date_key
+    rule_sk
+  }
+}
+
+Table analytics.fact_fault_event {
+  row_id text [pk]
+  vehicle_id text
+  database_name text
+  date_key int
+  diagnostic_sk text
+  controller_sk text
+  failure_mode_sk text
+  fecha date
+  movil text
+  fecha_de_falla timestamp
+  codigo_diagnostico int
+  codigo_modo_de_falla double
+  nombre_fuente_diagnostico text
+  codigo_controlador int
+  estado_de_falla text
+  recuento_de_fallos int
+  tipo_de_atencion text
+  luz_de_parada_amber boolean
+  luz_de_parada_roja boolean
+  lampara_de_averia boolean
+  lampara_de_advertencia boolean
+  nombre_de_controlador text
+  diagnostico text
+  modo_de_falla text
+
+  indexes {
+    vehicle_id
+    date_key
+  }
+}
+
+// ============================================================
+// REFERENCIAS  (FK)
+// ============================================================
+
+// RBAC
+Ref: user_roles.user_id > users.id [delete: cascade]
+Ref: user_roles.role_id > roles.id [delete: cascade]
+Ref: role_permissions.role_id > roles.id [delete: cascade]
+Ref: role_permissions.permission_id > permissions.id [delete: cascade]
+Ref: refresh_tokens.user_id > users.id [delete: cascade]
+
+// Flotas + maestros
+Ref: user_fleets.user_id > users.id [delete: cascade]
+Ref: user_fleets.fleet_id > fleets.id [delete: cascade]
+Ref: geotab_databases.fleet_id > fleets.id [delete: cascade]
+Ref: geotab_credentials.geotab_database_id > geotab_databases.id [delete: cascade]
+Ref: geotab_rules.geotab_database_id > geotab_databases.id [delete: cascade]
+Ref: geotab_rule_applications.geotab_rule_id > geotab_rules.id [delete: cascade]
+Ref: geotab_rule_applications.motor_type > motor_catalog.motor_type [delete: restrict]
+Ref: vehicles.fleet_id > fleets.id [delete: set null]
+Ref: vehicles.geotab_database_id > geotab_databases.id [delete: set null]
+Ref: vehicles.motor_type > motor_catalog.motor_type [delete: restrict]
+Ref: motor_rules.motor_type > motor_catalog.motor_type [delete: cascade]
+Ref: vehicle_extraction_state.vehicle_id > vehicles.id [delete: cascade]
+
+// Novedades
+Ref: novedades.vehicle_id > vehicles.id [delete: set null]
+Ref: novedades.fleet_id > fleets.id [delete: set null]
+Ref: novedades.created_by_id > users.id [delete: set null]
+Ref: novedad_attachments.novedad_id > novedades.id [delete: cascade]
+Ref: novedad_outbox.novedad_id > novedades.id [delete: cascade]
+
+// Sync / ETL
+Ref: sync_run.actor_user_id > users.id [delete: set null]
+Ref: etl_trigger_request.requested_by_user_id > users.id [delete: set null]
+Ref: etl_microbatch_commit.vehicle_id > vehicles.id [delete: cascade]
+
+// analytics (FK reales en la DB, NO en los modelos ORM)
+Ref: analytics.fact_combustible_daily.vehicle_id > analytics.dim_vehicle.vehicle_id
+Ref: analytics.fact_combustible_monthly.vehicle_id > analytics.dim_vehicle.vehicle_id
+Ref: analytics.fact_factor_carga_daily.vehicle_id > analytics.dim_vehicle.vehicle_id
+Ref: analytics.fact_pedal_reading.vehicle_id > analytics.dim_vehicle.vehicle_id
+Ref: analytics.fact_habito_event.vehicle_id > analytics.dim_vehicle.vehicle_id
+Ref: analytics.fact_habito_event.rule_sk > analytics.dim_rule.rule_sk
+Ref: analytics.fact_fault_event.vehicle_id > analytics.dim_vehicle.vehicle_id

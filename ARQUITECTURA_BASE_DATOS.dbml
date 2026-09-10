@@ -1,0 +1,992 @@
+// Importar directamente en dbdiagram.io.
+// Modelo lógico: claves, relaciones, grano e índices de acceso principales.
+// No contiene filas, secretos, cardinalidades ni tamaños del ambiente.
+
+Project portal_clientes {
+  database_type: 'PostgreSQL'
+  Note: '''
+  public    = OLTP/coordinación (identidad, maestro, réplicas, colas, auditoría)
+  navifault = corpus técnico Cummins y gestión de fallas (Alembic lo gobierna)
+  analytics = modelo dimensional de lectura, cuya DDL publica el ETL
+  '''
+}
+
+Table public.users {
+  id uuid [pk]
+  email citext [not null, unique]
+  password_hash varchar [not null]
+  full_name varchar [not null]
+  is_active boolean [not null]
+  last_login_at timestamptz
+}
+
+Table public.roles {
+  id uuid [pk]
+  code varchar [not null, unique]
+  name varchar [not null]
+  is_system boolean [not null]
+}
+
+Table public.permissions {
+  id uuid [pk]
+  code varchar [not null, unique]
+  resource varchar
+  action varchar
+}
+
+Table public.modules {
+  id uuid [pk]
+  code varchar [not null, unique]
+  name varchar [not null]
+  order int [not null]
+  is_active boolean [not null]
+}
+
+Table public.user_roles {
+  user_id uuid [pk, ref: > public.users.id]
+  role_id uuid [pk, ref: > public.roles.id]
+  Indexes { (role_id, user_id) }
+}
+
+Table public.role_permissions {
+  role_id uuid [pk, ref: > public.roles.id]
+  permission_id uuid [pk, ref: > public.permissions.id]
+  Indexes { (permission_id, role_id) }
+}
+
+Table public.fleets {
+  id uuid [pk]
+  source_id bigint [unique]
+  code varchar [not null, unique]
+  name varchar [not null]
+  range_mode varchar [not null, note: 'reglas | rpm']
+  is_active boolean [not null]
+  synced_at timestamptz
+}
+
+Table public.user_fleets {
+  user_id uuid [pk, ref: > public.users.id]
+  fleet_id uuid [pk, ref: > public.fleets.id]
+  Indexes { (fleet_id, user_id) }
+}
+
+Table public.refresh_tokens {
+  id uuid [pk]
+  user_id uuid [not null, ref: > public.users.id]
+  token_hash varchar [not null, unique]
+  expires_at timestamptz [not null]
+  revoked_at timestamptz
+  Indexes {
+    (user_id)
+    (expires_at)
+    (revoked_at)
+  }
+}
+
+Table public.geotab_databases {
+  id uuid [pk]
+  source_id bigint [unique]
+  fleet_id uuid [not null, ref: > public.fleets.id]
+  database_name varchar [not null]
+  database_key varchar [not null, note: 'Identidad de la base física compartida']
+  connection_type varchar [not null]
+  is_active boolean [not null]
+  Indexes {
+    (fleet_id, database_name) [unique]
+    (database_key)
+  }
+}
+
+Table public.geotab_credentials {
+  id uuid [pk]
+  source_id bigint [unique]
+  geotab_database_id uuid [not null, ref: > public.geotab_databases.id]
+  username varchar [not null]
+  password_enc bytea [not null, note: 'Cifrado Fernet']
+  is_active boolean [not null]
+  last_used_at timestamptz
+  Indexes { (geotab_database_id, username) [unique] }
+}
+
+Table public.geotab_rules {
+  id uuid [pk]
+  source_id bigint [unique]
+  geotab_database_id uuid [not null, ref: > public.geotab_databases.id]
+  rule_id varchar [not null]
+  name varchar [not null]
+  is_active boolean [not null]
+  Indexes { (geotab_database_id, rule_id) [unique] }
+}
+
+Table public.geotab_rule_applications {
+  id uuid [pk]
+  geotab_rule_id uuid [not null, ref: > public.geotab_rules.id]
+  category varchar [not null, note: 'operacion | habito_seguro']
+  motor_type varchar [ref: > public.motor_catalog.motor_type]
+  event_type varchar
+  description varchar
+  band varchar
+  is_descenso boolean [not null]
+  Indexes {
+    (geotab_rule_id)
+    (category)
+    (motor_type)
+    (event_type)
+    (band)
+  }
+}
+
+Table public.motor_catalog {
+  motor_type varchar [pk]
+  description varchar
+  governed_speed_rpm int [note: 'Velocidad nominal gobernada sin carga']
+  max_overspeed_rpm int [note: 'Capacidad máxima de sobrevelocidad']
+  Note: '''
+  Las dos velocidades llegan en `motors[]` del snapshot de Navi Vehículos y son
+  nullable: el sync es fail-per-motor. Un límite NULL excluye el evento en el
+  filtro de hábitos (fail-closed) y sólo pierde la agravación en la
+  calificación (fail-open). No son calibrables por el cliente.
+  '''
+}
+
+Table public.motor_attachments {
+  id uuid [pk]
+  source_id bigint [not null, unique, note: 'Identidad del adjunto en Navi Vehículos']
+  motor_type varchar [not null, ref: > public.motor_catalog.motor_type]
+  cpl varchar
+  original_filename varchar
+  content_type varchar
+  file_size bigint
+  source_stored_filename varchar [note: 'uuid4 nuevo por carga: es la huella de cambio']
+  source_updated_at timestamptz
+  object_key varchar [note: 'Copia perezosa en el bucket motor-curves']
+  content_sha256 varchar
+  fetch_status varchar [not null, note: 'pending | ready | failed']
+  fetch_error text
+  fetched_at timestamptz
+  is_active boolean [not null]
+  synced_at timestamptz
+  Indexes { (motor_type, is_active) }
+  Note: '''
+  Curva de par y potencia por motor y CPL. El snapshot maestro trae sólo
+  metadatos; el binario se descarga la primera vez que alguien abre el
+  documento y queda cacheado en MinIO. La caché se invalida únicamente si
+  cambia la huella (`source_stored_filename`, `source_updated_at`, `file_size`):
+  corregir el CPL no invalida. Un full sync desactiva lo que ya no viene pero
+  no borra la fila, porque `object_key` referencia la copia local.
+  '''
+}
+
+Table public.motor_rules {
+  id uuid [pk]
+  motor_type varchar [not null, ref: > public.motor_catalog.motor_type]
+  rule_name varchar [not null]
+  rule_id varchar [not null]
+  categoria varchar
+  Indexes { (motor_type, rule_name) [unique] }
+}
+
+Table public.motor_rpm_bands {
+  id uuid [pk]
+  motor_type varchar [not null, ref: > public.motor_catalog.motor_type]
+  band varchar [not null]
+  rpm_min int [not null]
+  rpm_max int
+  Indexes { (motor_type, band) [unique] }
+}
+
+Table public.rpm_rules {
+  id uuid [pk]
+  rpm_class varchar [not null]
+  rule_id varchar [not null]
+  ordinal int [not null]
+  Indexes { (rpm_class, ordinal) [unique] }
+}
+
+Table public.vehicles {
+  id uuid [pk]
+  plate varchar [not null, unique]
+  fleet_id uuid [ref: > public.fleets.id]
+  geotab_database_id uuid [ref: > public.geotab_databases.id]
+  geotab_device_id varchar
+  motor_type varchar [ref: > public.motor_catalog.motor_type]
+  cpl varchar [note: 'Empareja el vehículo con su curva de motor']
+  marketing_model_name varchar
+  service_model_name varchar [note: 'Dateplate: entra en la resolución Navifault']
+  rpm_class varchar
+  tank_volume decimal
+  is_active boolean [not null]
+  Indexes {
+    (geotab_database_id)
+    (motor_type)
+    (fleet_id, plate, id)
+    (geotab_device_id)
+  }
+  Note: 'Los índices de device y flota activa son parciales en PostgreSQL.'
+}
+
+Table public.vehicle_extraction_state {
+  id uuid [pk]
+  vehicle_id uuid [not null, ref: > public.vehicles.id]
+  dataset varchar [not null]
+  watermark timestamptz
+  backfill_from timestamptz
+  last_run_at timestamptz
+  status varchar [not null]
+  version bigint [not null]
+  Indexes {
+    (vehicle_id, dataset) [unique]
+    (dataset, backfill_from, vehicle_id)
+  }
+  Note: 'El índice de pendientes es parcial para pending/error/failed.'
+}
+
+Table public.sync_state {
+  key varchar [pk]
+  watermark timestamptz
+  detail jsonb
+  updated_at timestamptz [not null]
+  Note: '''
+  Además de los watermarks de sincronización guarda el cursor de versión del
+  feed en tiempo real de fallas, con clave
+  `geotab_feed:fault_data:{database_hash}:{credential_hash}`. Al ser un cursor
+  de versión y no una franja de fecha no pierde eventos en los bordes.
+  '''
+}
+
+Table public.cloudfleet_vehicles {
+  id uuid [pk]
+  code varchar [not null, unique]
+  odometer decimal
+  hourmeter decimal
+  is_in_master boolean [not null]
+  raw jsonb
+  synced_at timestamptz
+}
+
+Table public.cloudfleet_meter_sync_state {
+  id uuid [pk]
+  vehicle_id uuid [not null, ref: > public.vehicles.id]
+  meter_type varchar [not null]
+  meter_value decimal [not null]
+  meter_date timestamptz [not null]
+  status varchar [not null]
+  updated_at timestamptz [not null]
+  Indexes {
+    (vehicle_id, meter_type) [unique]
+    (status, updated_at)
+  }
+}
+
+Table public.cloudfleet_work_orders {
+  id uuid [pk]
+  number bigint [not null, unique]
+  vehicle_code varchar [not null]
+  status varchar
+  type varchar
+  affects_vehicle_availability boolean [not null]
+  start_date timestamptz
+  technical_completion_date timestamptz
+  final_completion_date timestamptz
+  total_cost decimal
+  raw jsonb
+  Indexes {
+    (vehicle_code)
+    (status)
+    (start_date)
+    (technical_completion_date)
+    (vehicle_code, technical_completion_date)
+  }
+}
+
+Table public.cloudfleet_maintenance_schedules {
+  id uuid [pk]
+  consecutive bigint
+  vehicle_code varchar
+  status varchar
+  task_name varchar
+  date_to_execute timestamptz [not null]
+  wo_number bigint
+  raw jsonb
+  Indexes {
+    (vehicle_code)
+    (date_to_execute)
+    (vehicle_code, date_to_execute)
+  }
+  Note: 'No hay UNIQUE en consecutive+date_to_execute: puede haber varias tareas.'
+}
+
+Table public.cloudfleet_tracking_events {
+  id uuid [pk]
+  work_order_number bigint [not null]
+  tracking_key varchar [not null]
+  tracking_id varchar
+  vehicle_code varchar
+  label_id int
+  event_at timestamptz
+  extracted_at timestamptz [not null]
+  Indexes {
+    (work_order_number, tracking_key) [unique]
+    (work_order_number, event_at)
+    (label_id, event_at)
+    (vehicle_code)
+  }
+}
+
+Table public.novedades {
+  id uuid [pk]
+  fleet_id uuid [ref: > public.fleets.id]
+  vehicle_id uuid [ref: > public.vehicles.id]
+  created_by_id uuid [ref: > public.users.id]
+  vehicle_code varchar [not null]
+  reported_at timestamptz [not null]
+  priority varchar [not null]
+  cloudfleet_status varchar [not null]
+  cloudfleet_issue_number int
+  idempotency_key varchar
+  request_fingerprint varchar
+  Indexes {
+    (fleet_id, reported_at, id)
+    (vehicle_id)
+    (created_by_id)
+    (created_by_id, idempotency_key) [unique]
+  }
+  Note: 'La unicidad de idempotencia es parcial cuando la clave no es NULL.'
+}
+
+Table public.novedad_attachments {
+  id uuid [pk]
+  novedad_id uuid [not null, ref: > public.novedades.id]
+  bucket varchar [not null]
+  object_key varchar [not null, unique]
+  filename varchar [not null]
+  content_type varchar [not null]
+  size_bytes int [not null]
+  Indexes { (novedad_id) }
+}
+
+Table public.novedad_outbox {
+  id uuid [pk]
+  novedad_id uuid [not null, unique, ref: > public.novedades.id]
+  status varchar [not null]
+  attempts int [not null]
+  available_at timestamptz [not null]
+  locked_at timestamptz
+  last_error text
+  Indexes {
+    (status, available_at, id)
+    (locked_at, id)
+  }
+  Note: 'Índices parciales para pendientes/fallidos y processing vencido.'
+}
+
+Table public.sync_run {
+  id uuid [pk]
+  kind varchar [not null]
+  trigger varchar [not null]
+  mode varchar [not null]
+  status varchar [not null]
+  started_at timestamptz [not null]
+  finished_at timestamptz
+  duration_ms int
+  result jsonb
+  actor_user_id uuid [ref: > public.users.id]
+  Indexes {
+    (kind)
+    (status)
+    (started_at)
+    (kind, started_at)
+  }
+}
+
+Table public.etl_trigger_request {
+  id uuid [pk]
+  requested_by_user_id uuid [ref: > public.users.id]
+  status varchar [not null]
+  created_at timestamptz [not null]
+  started_at timestamptz
+  finished_at timestamptz
+  error text
+  Indexes {
+    (status, created_at)
+    (created_at, id)
+  }
+  Note: 'El índice de created_at+id es parcial para status=pending.'
+}
+
+Table public.etl_microbatch_commit {
+  id uuid [pk]
+  vehicle_id uuid [not null, ref: > public.vehicles.id]
+  dataset varchar [not null]
+  analytics_vehicle_id varchar [not null]
+  window_start timestamptz [not null]
+  window_end timestamptz [not null]
+  pipeline_version varchar [not null]
+  output_sha256 varchar [not null]
+  raw_row_count bigint [not null]
+  fact_row_count bigint [not null]
+  committed_at timestamptz [not null]
+  Indexes {
+    (vehicle_id, dataset, window_start, window_end)
+    (committed_at)
+  }
+}
+
+Table public.distance_quality_decisions {
+  id uuid [pk]
+  fact_row_id varchar [not null]
+  analytics_vehicle_id varchar [not null]
+  date_key bigint [not null]
+  observation_fingerprint varchar [not null]
+  origin varchar [not null, note: 'automatic | manual']
+  action varchar [not null, note: 'use_ecm | use_gps | exclude | restore_auto']
+  reason_code varchar
+  justification text
+  observed_kms_ecm decimal
+  observed_kms_gps decimal
+  threshold_version varchar
+  actor_user_id uuid [ref: > public.users.id]
+  actor_email varchar [note: 'Se duplica para sobrevivir al borrado del usuario']
+  dedupe_key varchar [unique]
+  created_at timestamptz [not null]
+  Indexes {
+    (fact_row_id, created_at)
+    (analytics_vehicle_id, date_key)
+  }
+  Note: '''
+  La decisión sólo aplica mientras `observation_fingerprint` coincida con la
+  observación vigente: si el ETL recalcula el día, deja de aplicar.
+  `restore_auto` devuelve la fila a lo que decidió el ETL.
+  '''
+}
+
+Table public.calificacion_config_versions {
+  id uuid [pk]
+  fleet_id uuid [not null, ref: > public.fleets.id]
+  peso_qhs float
+  peso_qho float
+  peso_eficiente float
+  peso_ralenti float
+  peso_exceso_rpm float
+  efic_target float
+  ralenti_target float
+  ralenti_max float
+  eventos_cap float
+  rpm_cap_comercial_1000km float
+  rpm_cap_vocacional_100h float
+  rpm_high_weight float
+  umbral_en_riesgo float
+  umbral_cumple float
+  qhs_event_weights jsonb [note: 'Severidad por tipo de evento de seguridad']
+  qhs_default_weight float
+  penalizaciones jsonb [note: '{code: activa} contra el registro PENALIZACIONES']
+  is_reset boolean [not null]
+  actor_user_id uuid [ref: > public.users.id]
+  actor_email varchar
+  created_at timestamptz [not null]
+  Indexes { (fleet_id, created_at) }
+  Note: '''
+  Append-only: una fila por guardado y la última por flota gana. Todos los
+  parámetros son nullable y sin server_default para que una fila escrita antes
+  de añadir un parámetro siga siendo legible y para no congelar el default
+  vigente dentro de la fila. `is_reset` registra "volver a los defaults" como
+  decisión auditable en vez de borrar la fila anterior. Los CheckConstraint son
+  la segunda barrera, tolerante con NULL; la autoridad es validate_config.
+  El índice resuelve "la última por flota" sin ordenar.
+  '''
+}
+
+// ---------------------------------------------------------------------------
+// navifault — corpus técnico Cummins y gestión operativa de fallas.
+// El HTML oficial y los binarios viven en MinIO (bucket navifault-manuals);
+// PostgreSQL guarda hashes, claves de objeto y el grafo que permite resolver
+// una falla y navegarla. Lo gobierna Alembic, no el ETL.
+// ---------------------------------------------------------------------------
+
+Table navifault.corpus_import_runs {
+  import_id varchar [pk]
+  corpus_version varchar [not null]
+  status varchar [not null]
+  source_manifest jsonb [not null]
+  audit jsonb [not null]
+  created_at timestamptz [not null]
+  finished_at timestamptz
+}
+
+Table navifault.manuals {
+  pub_id varchar [pk]
+  language varchar [not null, note: 'ES | EN']
+  engine_models jsonb [not null]
+  fault_pages_total int [not null]
+  source_status varchar [not null, note: 'ready | incomplete']
+  imported_at timestamptz [not null]
+}
+
+Table navifault.engine_manual_candidates {
+  engine_serial varchar [pk]
+  pub_id varchar [pk, ref: > navifault.manuals.pub_id]
+  cpl varchar
+  candidate_type varchar [not null, note: 'primary | alternate']
+  source_record jsonb [not null]
+  Indexes { (pub_id) }
+  Note: 'Evidencia ESN -> publicación. No es la llave de resolución en runtime.'
+}
+
+Table navifault.dateplate_manual_map {
+  normalized_service_model_name varchar [pk]
+  pub_id varchar [pk, ref: > navifault.manuals.pub_id]
+  priority int [not null]
+  mapping_status varchar [not null, note: 'verified | pending | retired']
+  mapping_evidence jsonb [not null]
+  Indexes { (normalized_service_model_name, priority) }
+  Note: 'Llave real de resolución: dateplate del vehículo -> manual.'
+}
+
+Table navifault.fault_pages {
+  fault_page_id varchar [pk]
+  pub_id varchar [not null, ref: > navifault.manuals.pub_id]
+  language varchar [not null]
+  engine_model varchar [note: 'Familias que cubre la publicación, no el motor del vehículo']
+  fault_code int [not null]
+  variant varchar [not null]
+  title text
+  source_url text [not null]
+  raw_html_object_key text
+  raw_html_sha256 varchar
+  raw_html_status varchar [not null, note: 'available | missing']
+  summary jsonb [not null]
+  sections jsonb [not null]
+  source_record jsonb [not null]
+  Indexes {
+    (pub_id, fault_code, variant, source_url) [unique]
+    (pub_id, fault_code)
+  }
+}
+
+Table navifault.fault_protocol_keys {
+  fault_protocol_key_id varchar [pk]
+  fault_page_id varchar [not null, ref: > navifault.fault_pages.fault_page_id]
+  protocol varchar [not null, note: 'J1939 | J1708']
+  namespace varchar [not null, note: 'SPN | PID | SID']
+  diagnostic_code int [not null]
+  fmi int
+  match_specificity varchar [not null, note: 'code_fmi | code_only']
+  source_codes text [not null]
+  Indexes { (protocol, namespace, diagnostic_code, fmi) }
+  Note: 'Índice de resolución: el evento Geotab entra por protocolo, código y FMI.'
+}
+
+Table navifault.fault_page_tables {
+  fault_page_id varchar [pk, ref: > navifault.fault_pages.fault_page_id]
+  ordinal int [pk]
+  raw_table_html text [not null]
+  table_data jsonb [not null]
+}
+
+Table navifault.fault_page_language_links {
+  source_fault_page_id varchar [pk, ref: > navifault.fault_pages.fault_page_id]
+  target_fault_page_id varchar [pk, ref: > navifault.fault_pages.fault_page_id]
+  evidence jsonb [not null]
+  confidence decimal [not null]
+  status varchar [not null, note: 'candidate | verified | rejected']
+}
+
+Table navifault.fault_analyses {
+  analysis_id varchar [pk]
+  source_url text [not null, unique]
+  title text
+  raw_html_object_key text
+  raw_html_sha256 varchar
+  raw_html_status varchar [not null]
+  steps jsonb [not null]
+  source_analysis jsonb [not null]
+}
+
+Table navifault.fault_page_analyses {
+  fault_page_id varchar [pk, ref: > navifault.fault_pages.fault_page_id]
+  analysis_id varchar [pk, ref: > navifault.fault_analyses.analysis_id]
+}
+
+Table navifault.fault_analysis_tables {
+  analysis_id varchar [pk, ref: > navifault.fault_analyses.analysis_id]
+  ordinal int [pk]
+  raw_table_html text [not null]
+  table_data jsonb [not null]
+}
+
+Table navifault.technical_documents {
+  document_id varchar [pk]
+  source_url text [not null, unique]
+  title text
+  document_type varchar
+  raw_html_object_key text
+  raw_html_sha256 varchar
+  raw_html_status varchar [not null]
+  text_content text
+  sections jsonb [not null]
+  steps jsonb [not null]
+  warnings jsonb [not null]
+  cautions jsonb [not null]
+  source_document jsonb [not null]
+}
+
+Table navifault.technical_document_tables {
+  document_id varchar [pk, ref: > navifault.technical_documents.document_id]
+  ordinal int [pk]
+  raw_table_html text [not null]
+  table_data jsonb [not null]
+}
+
+Table navifault.fault_page_documents {
+  fault_page_id varchar [pk, ref: > navifault.fault_pages.fault_page_id]
+  document_id varchar [pk, ref: > navifault.technical_documents.document_id]
+  sort_order int [pk]
+  link_type varchar
+  link_text text
+  link_origin varchar [not null, note: 'fc_record | analysis_discovery']
+}
+
+Table navifault.fault_analysis_documents {
+  analysis_id varchar [pk, ref: > navifault.fault_analyses.analysis_id]
+  document_id varchar [pk, ref: > navifault.technical_documents.document_id]
+  sort_order int [pk]
+  link_type varchar
+  link_text text
+}
+
+Table navifault.technical_document_links {
+  parent_document_id varchar [pk, ref: > navifault.technical_documents.document_id]
+  child_document_id varchar [pk, ref: > navifault.technical_documents.document_id]
+  sort_order int [pk]
+  link_type varchar
+  link_text text
+}
+
+Table navifault.assets {
+  asset_id varchar [pk]
+  source_url text [unique]
+  object_key text
+  sha256 varchar
+  media_type varchar
+  local_status varchar [not null, note: 'available | missing']
+}
+
+Table navifault.fault_page_assets {
+  fault_page_id varchar [pk, ref: > navifault.fault_pages.fault_page_id]
+  asset_id varchar [pk, ref: > navifault.assets.asset_id]
+  ordinal int [pk]
+  caption text
+  display_url text
+  high_res_url text
+  Note: '''
+  La ingesta descargó una sola imagen por página y la ligó a todas sus
+  colocaciones, así que una página con varias figuras tiene un único activo
+  distinto. El visor compara el nombre descargado con el que pide el HTML y se
+  niega a servirlo bajo otro nombre: mostrar el diagrama equivocado con el pie
+  de figura correcto sería peor que "Gráfico no disponible".
+  '''
+}
+
+Table navifault.fault_analysis_assets {
+  analysis_id varchar [pk, ref: > navifault.fault_analyses.analysis_id]
+  asset_id varchar [pk, ref: > navifault.assets.asset_id]
+  ordinal int [pk]
+  caption text
+  display_url text
+  high_res_url text
+}
+
+Table navifault.technical_document_assets {
+  document_id varchar [pk, ref: > navifault.technical_documents.document_id]
+  asset_id varchar [pk, ref: > navifault.assets.asset_id]
+  ordinal int [pk]
+  caption text
+  display_url text
+  high_res_url text
+}
+
+Table navifault.generated_technical_descriptions {
+  description_id varchar [pk]
+  fault_page_id varchar [not null, ref: > navifault.fault_pages.fault_page_id]
+  context_sha256 varchar [not null]
+  prompt_version varchar [not null]
+  model_version varchar [not null]
+  status varchar [not null, note: 'pending | processing | ready | failed']
+  description text
+  generation_metadata jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Indexes {
+    (fault_page_id, context_sha256, prompt_version, model_version) [unique]
+    (status, updated_at)
+  }
+}
+
+Table navifault.generated_client_descriptions {
+  description_id varchar [pk]
+  fault_page_id varchar [not null, ref: > navifault.fault_pages.fault_page_id]
+  priority smallint [not null, note: 'Interactivo 100, barrido 0; mayor primero']
+  context_sha256 varchar [not null]
+  prompt_version varchar [not null]
+  model_version varchar [not null]
+  status varchar [not null, note: 'pending | processing | ready | failed']
+  descripcion_correo_cliente text
+  descripcion_plataforma_cliente text
+  generation_metadata jsonb [not null, note: 'finish_reason, usage y tamaño del razonamiento']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Indexes {
+    (fault_page_id, context_sha256, prompt_version, model_version) [unique]
+    (status, updated_at)
+    (status, priority, created_at) [note: 'priority DESC: es la cola de los dos carriles']
+  }
+  Note: '''
+  La identidad incluye context_sha256, así que tocar el contexto deja huérfanas
+  las filas anteriores y el barrido regenera sin subir PROMPT_VERSION.
+  '''
+}
+
+Table navifault.managed_fault_cases {
+  case_id uuid [pk]
+  vehicle_id uuid [not null, ref: > public.vehicles.id]
+  signature_sha256 varchar [not null]
+  source varchar [not null]
+  diagnostic_code int
+  failure_mode float
+  stop_amber boolean
+  stop_red boolean
+  malfunction boolean
+  warning boolean
+  managed_through_at timestamptz
+  managed_through_row_id varchar
+  current_cycle_started_at timestamptz
+  last_managed_at timestamptz [not null]
+  last_managed_by_user_id uuid [not null, ref: > public.users.id]
+  last_note text
+  Indexes {
+    (vehicle_id, signature_sha256) [unique]
+    (vehicle_id, last_managed_at)
+  }
+  Note: '''
+  Estado operacional de una firma de falla. Los eventos siguen siendo
+  analytics.fact_fault_event: aquí sólo vive la última gestión y su punto de
+  corte, de modo que una aparición posterior se detecta como repetición sin
+  modificar ni duplicar los hechos de Geotab.
+  '''
+}
+
+Table navifault.managed_fault_actions {
+  action_id uuid [pk]
+  case_id uuid [not null, ref: > navifault.managed_fault_cases.case_id]
+  action_type varchar [not null, note: 'managed | unmanaged']
+  managed_at timestamptz [not null]
+  managed_through_at timestamptz
+  managed_through_row_id varchar
+  cycle_started_at timestamptz
+  actor_user_id uuid [not null, ref: > public.users.id]
+  note text
+  Indexes { (case_id, managed_at) }
+  Note: 'Bitácora inmutable de cada gestión o reversión.'
+}
+
+Table navifault.repair_records {
+  repair_id uuid [pk]
+  case_id uuid [not null, ref: > navifault.managed_fault_cases.case_id]
+  managed_action_id uuid [not null, ref: > navifault.managed_fault_actions.action_id]
+  fault_page_id varchar [ref: > navifault.fault_pages.fault_page_id]
+  repair_action varchar [not null]
+  repair_key varchar [not null]
+  component_name varchar
+  repair_detail text
+  repaired_at timestamptz [not null]
+  created_by_user_id uuid [not null, ref: > public.users.id]
+  created_at timestamptz [not null]
+  Indexes {
+    (case_id, repaired_at)
+    (fault_page_id, repair_key)
+  }
+  Note: '''
+  La efectividad no se escribe en la fila: se deriva de las ocurrencias
+  posteriores en la ventana acordada. fault_page_id sólo se llena con una
+  coincidencia única; con una ambigua no se atribuye la reparación a una FC.
+  '''
+}
+
+Table navifault.management_configuration {
+  singleton boolean [pk, note: 'Siempre TRUE: fila única']
+  tracking_started_at timestamptz [not null]
+}
+
+Table analytics.dim_vehicle {
+  vehicle_id varchar [pk, note: 'database_name + device_id']
+  device_id varchar
+  database_name varchar
+  vehicle_label varchar
+  motor_type varchar [note: 'Llave hacia public.motor_catalog para los límites de RPM']
+  group_key varchar
+  rpm_class varchar
+  fuel_kind varchar
+  fuel_unit varchar
+  fuel_classification_source varchar
+  fuel_classification_conflict boolean
+  is_active boolean
+  Indexes { (device_id) }
+}
+
+Table analytics.dim_date {
+  date_key bigint [pk]
+  date date
+  month_start_date date
+}
+
+Table analytics.dim_rule {
+  rule_sk varchar [pk]
+  rule_id varchar
+  rule_name varchar
+  scope_type varchar
+  scope_value varchar
+}
+
+Table analytics.dim_diagnostic {
+  diagnostic_sk varchar [pk]
+  diagnostic_id varchar
+  name varchar
+}
+
+Table analytics.dim_controller {
+  controller_sk varchar [pk]
+  controller_id varchar
+  name varchar
+}
+
+Table analytics.dim_failure_mode {
+  failure_mode_sk varchar [pk]
+  failure_mode_id varchar
+  name varchar
+}
+
+Table analytics.fact_combustible_daily {
+  fact_row_id varchar [pk]
+  vehicle_id varchar [ref: > analytics.dim_vehicle.vehicle_id]
+  date_key bigint [ref: > analytics.dim_date.date_key]
+  fuel_kind varchar
+  kms_ecm decimal [note: 'Fuente cruda: nunca se sobrescribe']
+  kms_gps decimal [note: 'Fuente cruda: nunca se sobrescribe']
+  kms_effective decimal [note: 'NULL = excluido o no calculable, nunca cero']
+  distance_source varchar [note: 'ecm | gps_auto | none del ETL; ecm_manual | gps_manual de una decisión humana']
+  distance_quality_status varchar
+  distance_quality_reason varchar
+  distance_quality_fingerprint varchar [note: 'Ata una decisión humana a esta observación']
+  distance_threshold_version varchar
+  hrs_ecm decimal
+  hrs_gps decimal
+  pct_ralenti decimal [note: 'Acotado a 1; numerador y denominador de la misma fuente']
+  pct_ralenti_ecm decimal [note: 'Diagnóstico, sin acotar']
+  pct_ralenti_gps decimal [note: 'Diagnóstico, sin acotar']
+  horas_ralenti_base decimal [note: 'El divisor efectivo que usó el ETL']
+  fuente_ralenti varchar [note: 'ecm | banda | gps']
+  Indexes { (fuel_kind, date_key) }
+}
+
+Table analytics.fact_combustible_monthly {
+  fact_row_id varchar [pk]
+  vehicle_id varchar [ref: > analytics.dim_vehicle.vehicle_id]
+  month_start_date_key bigint [ref: > analytics.dim_date.date_key]
+  fuel_kind varchar
+  month_key bigint
+  Indexes {
+    (vehicle_id, month_start_date_key)
+    (month_start_date_key)
+    (fuel_kind, month_start_date_key)
+  }
+}
+
+Table analytics.fact_habito_event {
+  event_sk varchar [pk]
+  vehicle_id varchar [ref: > analytics.dim_vehicle.vehicle_id]
+  date_key bigint [ref: > analytics.dim_date.date_key]
+  rule_sk varchar [ref: > analytics.dim_rule.rule_sk]
+  event_type varchar
+  fecha_y_hora_del_evento timestamptz
+  duracion_evento decimal
+  distancia_evento_mt decimal
+  observacion_corta varchar [note: 'Texto histórico; el API aún lo parsea como respaldo']
+  rpm decimal
+  velocidad_kmh decimal
+  carga_pct decimal
+  g_force decimal [note: 'Pico por magnitud absoluta conservando el signo']
+  g_axis varchar [note: 'longitudinal | lateral | vertical']
+  event_value decimal [note: 'La métrica que define ese tipo de evento']
+  event_value_unit varchar [note: 'RPM | km/h | G']
+  Indexes { (vehicle_id, date_key, fecha_y_hora_del_evento, event_sk) }
+  Note: '''
+  Las siete columnas numéricas son aditivas y las emite el ETL, que ya
+  calculaba los valores y los perdía formateándolos dentro de observacion_corta.
+  El API las prefiere con COALESCE sobre el regex histórico; no retirar la rama
+  del regex hasta que el backfill esté verificado. Un event_type desconocido
+  deja event_value y su unidad en NULL: no se le inventa una métrica.
+  '''
+}
+
+Table analytics.fact_fault_event {
+  row_id varchar [pk]
+  vehicle_id varchar [ref: > analytics.dim_vehicle.vehicle_id]
+  date_key bigint [ref: > analytics.dim_date.date_key]
+  diagnostic_sk varchar [ref: > analytics.dim_diagnostic.diagnostic_sk]
+  controller_sk varchar [ref: > analytics.dim_controller.controller_sk]
+  failure_mode_sk varchar [ref: > analytics.dim_failure_mode.failure_mode_sk]
+  fecha_de_falla timestamptz
+  codigo_diagnostico int
+  codigo_modo_de_falla decimal
+  codigo_controlador int
+  nombre_fuente_diagnostico varchar [note: 'SourceJ1939Id | SourceGeotabGoId | SourceObdSaId | SourceJ1708Id']
+  luz_de_parada_roja boolean
+  luz_de_parada_amber boolean
+  lampara_de_averia boolean
+  lampara_de_advertencia boolean
+  Indexes { (vehicle_id, date_key, fecha_de_falla, row_id) }
+  Note: '''
+  Se ingesta en tiempo real por GetFeed cada 5 min, con ON CONFLICT (row_id) y
+  cursor de versión en public.sync_state.
+  nombre_fuente_diagnostico separa el bus del vehículo del equipo telemático
+  hablando de sí mismo (SourceGeotabGoId). El corte es opt-in: lo pide el tab de
+  Fallas de reportes; Navifault trabaja sobre todo lo que llega. La llave es la
+  fuente estable, no el nombre para mostrar del controlador, y se compara con
+  IS DISTINCT FROM para no perder las filas de fuente NULL.
+  '''
+}
+
+Table analytics.fact_factor_carga_daily {
+  fact_row_id varchar [pk]
+  vehicle_id varchar [ref: > analytics.dim_vehicle.vehicle_id]
+  date_key bigint [ref: > analytics.dim_date.date_key]
+}
+
+Table analytics.fact_def_daily {
+  fact_row_id varchar [pk]
+  vehicle_id varchar [ref: > analytics.dim_vehicle.vehicle_id]
+  date_key bigint [ref: > analytics.dim_date.date_key]
+}
+
+Table analytics.fact_altimetria_reading {
+  row_id varchar [pk]
+  vehicle_id varchar [ref: > analytics.dim_vehicle.vehicle_id]
+  date_key bigint [ref: > analytics.dim_date.date_key]
+}
+
+Table analytics.fact_pedal_reading {
+  row_id varchar [pk]
+  vehicle_id varchar [ref: > analytics.dim_vehicle.vehicle_id]
+  date_key bigint [ref: > analytics.dim_date.date_key]
+  fecha_y_hora timestamptz
+  Indexes { (vehicle_id, date_key, fecha_y_hora, row_id) }
+}
+
+Table analytics.fact_location_point {
+  log_row_id varchar [pk]
+  vehicle_id varchar [ref: > analytics.dim_vehicle.vehicle_id]
+  date_key bigint [ref: > analytics.dim_date.date_key]
+  latitude decimal
+  longitude decimal
+  speed decimal
+}

@@ -1,0 +1,128 @@
+# Integración continua básica de Portal Clientes en Azure Pipelines.
+#
+# Tres trabajos independientes que reproducen `pnpm check` y las comprobaciones
+# del API y del ETL sobre un agente Ubuntu hospedado por Microsoft:
+#   - web: instalación congelada, lint, tipos, pruebas unitarias y build de Next.
+#   - api: dependencias congeladas con uv, ruff, contrato OpenAPI, migraciones y
+#     pytest contra un PostgreSQL efímero en Docker.
+#   - etl: pruebas unitarias del ETL de reportes (sin MyGeotab ni base de datos).
+#
+# No despliega nada: el despliegue sigue siendo `docker compose` con el overlay
+# de producción, descrito en README.md.
+
+trigger:
+  branches:
+    include:
+      - desarrollo
+      - main
+
+pr:
+  branches:
+    include:
+      - desarrollo
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  PNPM_VERSION: 9.12.0
+  NODE_VERSION: 20.x
+  PYTHON_VERSION: "3.12"
+  # Misma base de pruebas que exige apps/api/tests/conftest.py; el nombre es
+  # una guarda contra apuntar la suite a una base real.
+  TEST_DATABASE_URL: postgresql+psycopg://portal_clientes:portal_clientes_dev@localhost:5432/portal_clientes_codex_test
+
+jobs:
+  - job: web
+    displayName: Web (Next.js)
+    steps:
+      - task: NodeTool@0
+        displayName: Node $(NODE_VERSION)
+        inputs:
+          versionSpec: $(NODE_VERSION)
+      - script: corepack enable && corepack prepare pnpm@$(PNPM_VERSION) --activate && pnpm --version
+        displayName: pnpm
+      - script: pnpm install --frozen-lockfile
+        displayName: Instalar dependencias
+      - script: pnpm --filter web lint
+        displayName: Lint
+      - script: pnpm --filter web typecheck
+        displayName: Tipos
+      - script: pnpm --filter web test
+        displayName: Pruebas unitarias
+      - script: pnpm --filter web build
+        displayName: Build de producción
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          API_PROXY_TARGET: http://api:8000
+      - script: |
+          pnpm exec openapi-typescript apps/api/openapi.json -o /tmp/openapi-types.ts
+          diff -u packages/shared-types/index.ts /tmp/openapi-types.ts
+        displayName: Tipos compartidos al día con OpenAPI
+
+  - job: api
+    displayName: API (FastAPI)
+    steps:
+      - task: UsePythonVersion@0
+        displayName: Python $(PYTHON_VERSION)
+        inputs:
+          versionSpec: $(PYTHON_VERSION)
+      - script: |
+          docker run -d --name pg-test -p 5432:5432 \
+            -e POSTGRES_USER=portal_clientes \
+            -e POSTGRES_PASSWORD=portal_clientes_dev \
+            -e POSTGRES_DB=portal_clientes_codex_test \
+            postgres:16-alpine
+          for i in $(seq 1 30); do
+            docker exec pg-test pg_isready -U portal_clientes -d portal_clientes_codex_test && exit 0
+            sleep 2
+          done
+          echo "PostgreSQL no arrancó" >&2; exit 1
+        displayName: PostgreSQL efímero
+      - script: python -m pip install --upgrade pip && python -m pip install uv==0.11.24
+        displayName: uv
+      - script: uv sync --project apps/api --all-extras --frozen
+        displayName: Instalar dependencias
+      - script: uv run ruff check app tests scripts
+        workingDirectory: apps/api
+        displayName: Ruff
+      - script: uv run python scripts/export_openapi.py --check
+        workingDirectory: apps/api
+        displayName: Contrato OpenAPI sin cambios
+      # `alembic check` no se ejecuta a propósito: los modelos del schema
+      # `navifault` (corpus de manuales, cargado por un importador externo) no
+      # nacen de migraciones y el comparador los reporta como deriva.
+      - script: uv run alembic upgrade head
+        workingDirectory: apps/api
+        displayName: Migraciones aplican en una base vacía
+        env:
+          DATABASE_URL: $(TEST_DATABASE_URL)
+          DATABASE_URL_LOCAL: ""
+          ENVIRONMENT: test
+          JWT_SECRET: ci-only-secret-at-least-32-characters
+      - script: uv run pytest -q -p no:cacheprovider
+        workingDirectory: apps/api
+        displayName: Pruebas
+        env:
+          TEST_DATABASE_URL: $(TEST_DATABASE_URL)
+          ENVIRONMENT: test
+          JWT_SECRET: ci-only-secret-at-least-32-characters
+      - script: uv run mypy app
+        workingDirectory: apps/api
+        displayName: mypy (informativo)
+        continueOnError: true
+
+  - job: etl
+    displayName: ETL de reportes
+    steps:
+      - task: UsePythonVersion@0
+        displayName: Python $(PYTHON_VERSION)
+        inputs:
+          versionSpec: $(PYTHON_VERSION)
+      - script: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
+        workingDirectory: InformesRendimiento
+        displayName: Instalar dependencias
+      - script: python -m pytest -q -m "not integration" tests
+        workingDirectory: InformesRendimiento
+        displayName: Pruebas unitarias

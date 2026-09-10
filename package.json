@@ -1,0 +1,38 @@
+{
+  "name": "portal-clientes",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "check": "turbo run lint typecheck test build",
+    "check:web": "turbo run lint typecheck test build --filter=web",
+    "check:api": "turbo run lint typecheck test --filter=api",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "gen:openapi": "uv run --project apps/api python apps/api/scripts/export_openapi.py",
+    "gen:types": "pnpm gen:openapi && openapi-typescript apps/api/openapi.json -o packages/shared-types/index.ts",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "prettier": "^3.4.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
+    "openapi-typescript": "^7.5.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,json,css}": [
+      "prettier --write --ignore-unknown"
+    ]
+  }
+}

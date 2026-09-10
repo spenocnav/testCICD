@@ -1,0 +1,48 @@
+﻿Documento de Arquitectura y Stack Tecnológico: Navifault 2.0
+1. Visión General del Sistema
+Navifault evoluciona de una herramienta de notificación pasiva a un Sistema Bidireccional de Mantenimiento Predictivo en Tiempo Real. La arquitectura está diseñada bajo los principios de desacoplamiento, alta disponibilidad, seguridad de tipos (Type Safety) y procesamiento asíncrono.
+El sistema soporta dos interfaces unificadas bajo un mismo dominio mediante Control de Acceso Basado en Roles (RBAC):
+* Panel de Control (Gerencia/Torre de Control): Dashboard analítico de alta densidad de datos.
+* Progressive Web App (Conductores): Interfaz móvil táctil, optimizada para baja conectividad y orientada a la acción inmediata.
+2. Capa de Presentación (Frontend)
+El cliente web está construido para garantizar un rendimiento extremo y cero errores en tiempo de ejecución.
+* Framework Principal: Next.js (App Router)
+   * Por qué: Permite Renderizado del Lado del Servidor (SSR) para los pesados dashboards del gerente, asegurando cargas ultrarrápidas. Habilita un enrutamiento seguro basado en roles desde el servidor.
+* Lenguaje: TypeScript (Modo Estricto)
+   * Por qué: Previene errores en producción al forzar un contrato estricto de datos. Si la API cambia un parámetro de telemetría, el frontend avisa en la compilación, no en la carretera.
+* Gestor de Estados Complejos: XState
+   * Por qué: Modela el flujo de las alertas (Detectada -> Notificada -> Confirmada -> Resuelta) como una máquina de estados finitos. Impide matemáticamente comportamientos anómalos en la interfaz.
+* Gestor de Peticiones y Caché: TanStack Query (React Query)
+   * Por qué: Sincroniza el estado del servidor con la app web. Maneja reintentos automáticos si el conductor pierde señal y guarda los datos en caché para una experiencia instantánea.
+* Interfaz de Usuario (UI): Tailwind CSS + Radix UI (Headless)
+   * Por qué: Radix garantiza accesibilidad profesional (Headless UI) y Tailwind permite un diseño 100% responsivo y personalizado para Navitrans, sin el peso extra de librerías tradicionales.
+* Capacidad Offline: Next-PWA (Service Workers)
+   * Por qué: Permite instalar la app en los celulares de los conductores, almacenando la app en caché para operar y encolar respuestas en zonas sin cobertura celular.
+3. Capa Lógica y API (Backend)
+El núcleo del procesamiento de datos en tiempo real y la integración con modelos de Inteligencia Artificial.
+* Framework Principal: FastAPI (Python)
+   * Por qué: Soporte asíncrono nativo (ASGI), ideal para manejar miles de conexiones concurrentes de telemetría. Genera automáticamente la documentación de la API (OpenAPI), lo que permite auto-generar los tipos de TypeScript para el frontend, logrando Type Safety de extremo a extremo.
+* Comunicación Bidireccional: WebSockets nativos
+   * Por qué: Mantiene canales abiertos con los dispositivos móviles para empujar alertas (ej. saturación DPF) en milisegundos, sin que el usuario actualice la pantalla.
+* Motor de IA Integrado: Scripts de Python procesando NLP (Procesamiento de Lenguaje Natural) para traducir códigos de falla crudos en recomendaciones operativas accionables para los conductores.
+4. Capa de Ingestión y Eventos (El Músculo)
+Procesos en segundo plano (Daemons) que no bloquean la experiencia del usuario.
+* Worker de Telemetría: Python + mygeotab SDK
+   * Por qué: Un microservicio aislado que ejecuta un bucle continuo usando el método GetFeed de Geotab para extraer StatusData (DPF, RPM, Temperatura) y FaultData, descargando solo los deltas (datos nuevos).
+* Broker de Mensajería: Redis (Pub/Sub)
+   * Por qué: Actúa como el puente de ultra alta velocidad. Cuando el Worker de Geotab detecta una anomalía, la publica en Redis. FastAPI escucha a Redis y dispara la alerta por WebSocket al conductor correspondiente, garantizando latencia casi nula.
+5. Capa de Datos (Persistencia)
+* Base de Datos Relacional: PostgreSQL
+   * Por qué: Robusta, transaccional y perfecta para manejar cruces complejos entre flotas, conductores, turnos y el histórico de eventos telemétricos y preventivos.
+* ORM: SQLAlchemy (Async) o Prisma (Python client)
+   * Por qué: Maneja las consultas a la base de datos de manera programática, segura contra inyecciones SQL y optimizada para operaciones asíncronas.
+6. Capa de DevOps, Infraestructura y Calidad
+Para asegurar que el sistema sea de misión crítica y altamente escalable.
+* Contenedorización: Docker + Docker Compose
+   * Por qué: Toda la arquitectura (Next.js, FastAPI, Worker, Postgres, Redis) se encapsula en contenedores independientes, asegurando que funcione igual en el entorno de desarrollo local que en el servidor de producción.
+* Estructura del Proyecto: Turborepo (Monorepo)
+   * Por qué: Permite tener el código del backend, frontend y las configuraciones compartidas en un solo repositorio, agilizando el trabajo del equipo de desarrollo de IT.
+* Testing Automatizado: Playwright + Vitest
+   * Por qué: Vitest prueba la lógica matemática. Playwright simula navegadores reales (emulando la vista del conductor y del gerente) para asegurar que la app no se rompa antes de cada actualización.
+* Observabilidad: Sentry
+   * Por qué: Monitoreo de errores en tiempo real. Si a un conductor le falla la PWA en su celular, Sentry captura la línea exacta de código, el modelo del celular y los datos de red, enviando el reporte a IT sin que el conductor tenga que reportarlo.

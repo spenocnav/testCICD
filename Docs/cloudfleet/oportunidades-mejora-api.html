@@ -1,0 +1,944 @@
+<title>Oportunidades de mejora CloudFleet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap">
+<style>
+  :root {
+    --ground: #f2f5f4;
+    --surface: #ffffff;
+    --surface-sunk: #e9eeec;
+    --ink: #17211f;
+    --ink-soft: #43514e;
+    --ink-mute: #6a7a76;
+    --rule: #d3dbd8;
+    --rule-soft: #e3e9e7;
+    --accent: #0d6558;
+    --accent-soft: #e0efeb;
+    --sev-block: #a83a26;
+    --sev-block-bg: #f8e8e4;
+    --sev-high: #8a5c0d;
+    --sev-high-bg: #f7eedb;
+    --sev-med: #3f6070;
+    --sev-med-bg: #e6eef2;
+    --sev-info: #5b6b66;
+    --sev-info-bg: #e8ecea;
+    --shadow: 0 1px 2px rgba(23, 33, 31, .05), 0 8px 24px -16px rgba(23, 33, 31, .28);
+
+    --f-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --f-serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0e1413;
+      --surface: #161e1c;
+      --surface-sunk: #1c2624;
+      --ink: #e7eeec;
+      --ink-soft: #b3c1bd;
+      --ink-mute: #83948f;
+      --rule: #2a3634;
+      --rule-soft: #212b29;
+      --accent: #57b8a5;
+      --accent-soft: #17302c;
+      --sev-block: #e8836c;
+      --sev-block-bg: #34201b;
+      --sev-high: #ddab4e;
+      --sev-high-bg: #322718;
+      --sev-med: #8fb4c6;
+      --sev-med-bg: #1c2a30;
+      --sev-info: #9aaaa5;
+      --sev-info-bg: #212927;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .7);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0e1413;
+    --surface: #161e1c;
+    --surface-sunk: #1c2624;
+    --ink: #e7eeec;
+    --ink-soft: #b3c1bd;
+    --ink-mute: #83948f;
+    --rule: #2a3634;
+    --rule-soft: #212b29;
+    --accent: #57b8a5;
+    --accent-soft: #17302c;
+    --sev-block: #e8836c;
+    --sev-block-bg: #34201b;
+    --sev-high: #ddab4e;
+    --sev-high-bg: #322718;
+    --sev-med: #8fb4c6;
+    --sev-med-bg: #1c2a30;
+    --sev-info: #9aaaa5;
+    --sev-info-bg: #212927;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 62rem;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2.75rem;
+  }
+
+  /* ---------- encabezado ---------- */
+
+  .masthead { display: flex; flex-direction: column; gap: 1.25rem; }
+
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: .7rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  h1 {
+    font-size: clamp(1.9rem, 4.2vw, 2.9rem);
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    font-weight: 600;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .lead {
+    font-family: var(--f-serif);
+    font-size: 1.1rem;
+    line-height: 1.65;
+    color: var(--ink-soft);
+    max-width: 40rem;
+    margin: 0;
+  }
+
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .meta div { background: var(--surface); padding: .8rem 1rem; }
+
+  .meta dt {
+    font-family: var(--f-mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    margin: 0 0 .25rem;
+  }
+
+  .meta dd {
+    margin: 0;
+    font-size: .9rem;
+    font-weight: 500;
+    color: var(--ink);
+  }
+
+  .note {
+    border-left: 2px solid var(--accent);
+    padding: .1rem 0 .1rem 1rem;
+    color: var(--ink-soft);
+    font-size: .92rem;
+    max-width: 44rem;
+  }
+
+  /* ---------- secciones ---------- */
+
+  section { display: flex; flex-direction: column; gap: 1.1rem; }
+
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: .85rem;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: .55rem;
+  }
+
+  .sec-head h2 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    margin: 0;
+  }
+
+  .sec-count {
+    font-family: var(--f-mono);
+    font-size: .72rem;
+    color: var(--ink-mute);
+    margin-left: auto;
+    white-space: nowrap;
+  }
+
+  /* ---------- hallazgo ---------- */
+
+  .find {
+    background: var(--surface);
+    border: 1px solid var(--rule-soft);
+    border-radius: 4px;
+    box-shadow: var(--shadow);
+    display: grid;
+    grid-template-columns: 5.5rem 1fr;
+  }
+
+  .find > .id-col {
+    border-right: 1px solid var(--rule-soft);
+    padding: 1rem .9rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    align-items: flex-start;
+  }
+
+  .fid {
+    font-family: var(--f-mono);
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sev {
+    font-family: var(--f-mono);
+    font-size: .6rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    padding: .16rem .42rem;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+
+  .sev-block { color: var(--sev-block); background: var(--sev-block-bg); }
+  .sev-high  { color: var(--sev-high);  background: var(--sev-high-bg); }
+  .sev-med   { color: var(--sev-med);   background: var(--sev-med-bg); }
+  .sev-info  { color: var(--sev-info);  background: var(--sev-info-bg); }
+
+  .body-col { padding: 1rem 1.15rem 1.15rem; display: flex; flex-direction: column; gap: .7rem; }
+
+  .find h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.35;
+    text-wrap: balance;
+  }
+
+  .find p { margin: 0; color: var(--ink-soft); font-size: .93rem; }
+
+  .find code, .ev code {
+    font-family: var(--f-mono);
+    font-size: .85em;
+    background: var(--surface-sunk);
+    padding: .08em .32em;
+    border-radius: 2px;
+    color: var(--ink);
+  }
+
+  .ev {
+    background: var(--surface-sunk);
+    border-radius: 3px;
+    padding: .65rem .8rem;
+    font-family: var(--f-mono);
+    font-size: .78rem;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    overflow-x: auto;
+  }
+
+  .ev b { color: var(--ink); font-weight: 600; }
+  .ev code { background: none; padding: 0; }
+
+  .ev-label {
+    display: block;
+    font-size: .62rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    margin-bottom: .3rem;
+  }
+
+  .ask {
+    display: flex;
+    gap: .55rem;
+    align-items: baseline;
+    font-size: .93rem;
+    color: var(--ink);
+    border-top: 1px solid var(--rule-soft);
+    padding-top: .7rem;
+  }
+
+  .ask-label {
+    font-family: var(--f-mono);
+    font-size: .62rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    flex: none;
+    padding-top: .18rem;
+  }
+
+  .ask p { color: var(--ink); }
+
+  /* ---------- cierre ---------- */
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 1.5rem;
+    color: var(--ink-mute);
+    font-size: .85rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+  }
+
+  footer strong { color: var(--ink-soft); font-weight: 600; }
+
+  @media (max-width: 40rem) {
+    .find { grid-template-columns: 1fr; }
+    .find > .id-col {
+      border-right: none;
+      border-bottom: 1px solid var(--rule-soft);
+      flex-direction: row;
+      align-items: center;
+      padding: .6rem .9rem;
+    }
+    .ask { flex-direction: column; gap: .3rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <span class="eyebrow">Navitrans S.A.S. · Integración Portal Clientes</span>
+    <h1>Oportunidades de mejora en la API de CloudFleet</h1>
+    <p class="lead">
+      Durante la integración del módulo de fallas telemáticas del Portal Clientes con CloudFleet
+      levantamos veinte puntos que hoy nos obligan a soluciones indirectas. Todos están
+      verificados contra la API en producción, con el número de novedad y de orden con el que
+      se pueden reproducir. Los ordenamos por tema y cada uno lleva un identificador estable
+      para que puedan responderlos por separado.
+    </p>
+
+    <dl class="meta">
+      <div>
+        <dt>Fecha</dt>
+        <dd>5 de septiembre de 2026</dd>
+      </div>
+      <div>
+        <dt>Método</dt>
+        <dd>Lecturas sobre la API viva</dd>
+      </div>
+      <div>
+        <dt>Caso de prueba</dt>
+        <dd>Novedad #706 · OT 5733</dd>
+      </div>
+      <div>
+        <dt>Corpus revisado</dt>
+        <dd>3.365 órdenes · 696 novedades</dd>
+      </div>
+    </dl>
+
+    <p class="note">
+      Nada de lo que sigue es una queja sobre el producto. Son puntos donde la API no expone algo
+      que la interfaz sí sabe, o donde el nombre de un campo no coincide con lo que contiene.
+      Varios se resuelven documentando el comportamiento actual, sin cambiarlo.
+    </p>
+  </header>
+
+  <!-- ============ WEBHOOKS ============ -->
+  <section>
+    <div class="sec-head">
+      <h2>Webhooks</h2>
+      <span class="sec-count">4 puntos</span>
+    </div>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-01</span>
+        <span class="sev sev-block">Bloqueante</span>
+      </div>
+      <div class="body-col">
+        <h3>No encontramos cómo registrar una URL de webhook</h3>
+        <p>
+          La documentación describe seis eventos, el sobre <code>event</code> + <code>content</code>,
+          la firma HMAC y la política de reintentos. El paso de registro dice
+          «regístrela dentro de cloudFleet» y ahí termina. No hay endpoint de API para
+          suscripciones, y revisamos la configuración completa con un usuario administrador.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Lo que vimos</span>
+          <b>Empresa › Configuración › Integraciones</b> contiene únicamente
+          <b>API Keys</b> e <b>Integraciones nativas de GPS</b>. Ninguna pantalla de webhooks.<br>
+          La guía del usuario documenta API Keys con su ruta de menú; para webhooks no hay página.<br>
+          La página de precios lista «API + Webhooks» dentro del Plan Estándar.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Confirmar cómo se registra un webhook: si es autoservicio y no lo encontramos,
+            si lo habilita soporte a solicitud, o si depende del plan contratado.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-02</span>
+        <span class="sev sev-high">Alta</span>
+      </div>
+      <div class="body-col">
+        <h3>No existe evento de webhook para novedades</h3>
+        <p>
+          Los seis eventos publicados cubren órdenes de trabajo, odómetro y horómetro. Las
+          novedades cambian de estado por acciones que ocurren en la orden y ninguna de esas
+          transiciones se notifica, así que la única vía es consultar cada novedad por su número.
+        </p>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Un evento por cambio de estado de novedad. Con <code>issue.linked</code> e
+            <code>issue.unlinked</code> ya cubriríamos nuestro caso completo.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-03</span>
+        <span class="sev sev-high">Alta</span>
+      </div>
+      <div class="body-col">
+        <h3>Borrar un trabajo cambia el estado de la novedad y no emite ningún evento</h3>
+        <p>
+          Es el caso que más nos costó detectar. Al borrar el trabajo de una orden, la novedad
+          ligada vuelve a abrirse. La orden no cambia de estado —sigue abierta— así que ninguno
+          de los cuatro eventos de orden se dispara, y tampoco hay eventos de trabajos.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Reproducible con la novedad #706 y la orden 5733</span>
+          Al asignar &nbsp;→&nbsp; <code>isDone: true</code> · <code>workOrderDoneNumber: 5733</code><br>
+          Al borrar el trabajo &nbsp;→&nbsp; <code>isDone: false</code> · <code>doneAt: null</code> ·
+          <code>workOrderDoneNumber: null</code><br>
+          Estado de la orden en ambos momentos: <b>opened</b>. Ningún evento emitido.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Eventos de trabajo (<code>labor.created</code> / <code>labor.deleted</code>), o que
+            el cambio de vínculo de una novedad emita el evento de CF-02.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-04</span>
+        <span class="sev sev-info">Documentación</span>
+      </div>
+      <div class="body-col">
+        <h3>El esquema exacto de la firma HMAC no está publicado</h3>
+        <p>
+          Se indica que <code>X-CloudFleet-WebHook-Signature</code> es HMAC SHA256 sobre el cuerpo
+          JSON, pero no si se calcula sobre el cuerpo crudo tal como llega —lo que obliga a
+          conservarlo antes de parsearlo—, ni el encoding del resultado, ni si el header lleva
+          prefijo. Sin eso no se puede implementar la validación con certeza.
+        </p>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>El detalle de la firma y un ejemplo con cuerpo, secreto y resultado esperado.</p>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ============ ENLACE NOVEDAD-TRABAJO ============ -->
+  <section>
+    <div class="sec-head">
+      <h2>El enlace entre una novedad y su trabajo</h2>
+      <span class="sec-count">4 puntos</span>
+    </div>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-05</span>
+        <span class="sev sev-block">Bloqueante</span>
+      </div>
+      <div class="body-col">
+        <h3>El vínculo novedad ↔ trabajo no se expone por API en ninguna dirección</h3>
+        <p>
+          La interfaz sí lo conoce: la fila del trabajo muestra el distintivo «Novedad» en la
+          columna Trabajo. Pero la novedad no apunta al trabajo, y el trabajo no tiene ningún
+          campo que apunte a la novedad. Lo único que queda es que la descripción del trabajo
+          copia el texto de la novedad.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Volcado completo del trabajo 15087 de la orden 5733</span>
+          Claves del objeto: <code>id · workOrderNumber · name · code · maintenanceType ·
+          unitCost · qty · discount · tax · totalCost · vendor · system · subsystem ·
+          ledgerAccount · invoice · comment · createdAt</code><br>
+          Ninguna referencia a la novedad. En la novedad #706, <code>associatedLabor: null</code>.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Que el trabajo publique el número de novedad a la que está atado, o que la novedad
+            publique el identificador del trabajo de la orden. Con cualquiera de las dos basta.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-06</span>
+        <span class="sev sev-high">Alta</span>
+      </div>
+      <div class="body-col">
+        <h3><code>associatedLabor</code> no contiene el trabajo ejecutado</h3>
+        <p>
+          El nombre lleva a pensar que apunta al trabajo de la orden que resolvió la novedad.
+          Contiene la actividad del catálogo que se seleccionó al reportar. Los rangos de
+          identificador lo confirman: el catálogo va en miles bajos y los trabajos de una orden
+          en decenas de miles.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Tres novedades resueltas, contrastadas con los trabajos de su propia orden</span>
+          #687 → orden 5410 · <code>associatedLabor.id 4165</code> · no coincide con ningún trabajo<br>
+          #693 → orden 5513 · <code>associatedLabor.id 4247</code> · no coincide<br>
+          #696 → orden 5641 · <code>associatedLabor.id 3418</code> · no coincide, con 9 trabajos en la orden<br>
+          Lo traen 123 de las 380 novedades resueltas.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Que la documentación aclare que es la actividad solicitada, no la ejecutada. Un
+            nombre como <code>requestedActivity</code> evitaría la confusión de raíz.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-07</span>
+        <span class="sev sev-med">Media</span>
+      </div>
+      <div class="body-col">
+        <h3>Una novedad admite un solo trabajo</h3>
+        <p>
+          Cuando varios trabajos de la misma orden resuelven una novedad no hay forma de
+          expresarlo. El taller tiene que elegir uno y describir el resto en el texto, y esa
+          información deja de ser consultable.
+        </p>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>Poder asociar más de un trabajo a la misma novedad.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-08</span>
+        <span class="sev sev-med">Media</span>
+      </div>
+      <div class="body-col">
+        <h3>La pestaña Novedades de la orden muestra cero cuando sí hay una novedad atada</h3>
+        <p>
+          En la orden 5733, con un trabajo que lleva el distintivo «Novedad» en su fila, la
+          pestaña Novedades del encabezado marca <code>0</code>. Quien abre la orden no
+          encuentra la novedad por donde la buscaría.
+        </p>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>Que la pestaña liste las novedades atadas a cualquiera de los trabajos de la orden.</p>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ============ SEMÁNTICA DE ESTADOS ============ -->
+  <section>
+    <div class="sec-head">
+      <h2>Semántica de los estados</h2>
+      <span class="sec-count">3 puntos</span>
+    </div>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-09</span>
+        <span class="sev sev-high">Alta</span>
+      </div>
+      <div class="body-col">
+        <h3><code>isDone</code> se activa al asignar la novedad a una orden, no al atenderla</h3>
+        <p>
+          Asignar una novedad a una orden la deja en <code>isDone: true</code> aunque la orden
+          siga abierta y no se haya intervenido el vehículo. No hay ningún campo que distinga
+          «adjuntada a una orden» de «atendida», así que un consumidor de la API no puede saber
+          si el trabajo ocurrió.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Novedad #706, en el instante de asignarla</span>
+          Novedad: <code>isDone: true</code> · <code>doneAt: 2026-09-05</code> ·
+          <code>workOrderDoneNumber: 5733</code><br>
+          Orden 5733 en ese mismo instante: <b>opened</b>, sin cierre técnico ni final.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Un estado propio de la novedad —abierta, asignada, atendida— o que
+            <code>isDone</code> se reserve para el cierre real y la asignación viaje aparte.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-10</span>
+        <span class="sev sev-info">A conservar</span>
+      </div>
+      <div class="body-col">
+        <h3>La reversión al borrar el trabajo es correcta y nos apoyamos en ella</h3>
+        <p>
+          Este no es un defecto: es un comportamiento que funciona bien y que queremos dejar por
+          escrito para que no se pierda en una versión futura. Al borrar el trabajo, la novedad
+          revierte de forma completa y el repuesto asociado se elimina en cascada.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Estado antes y después de borrar el trabajo 15087</span>
+          <code>isDone</code> true → <b>false</b> &nbsp;·&nbsp;
+          <code>doneAt</code> 2026-09-05 → <b>null</b> &nbsp;·&nbsp;
+          <code>workOrderDoneNumber</code> 5733 → <b>null</b><br>
+          Orden 5733: 1 trabajo y 1 repuesto → <b>0 y 0</b>.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>Que quede documentado, porque nuestra integración depende de que se mantenga.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-19</span>
+        <span class="sev sev-high">Alta</span>
+      </div>
+      <div class="body-col">
+        <h3><code>doneAt</code> es la fecha de la orden, no el momento en que se atendió</h3>
+        <p>
+          Al enlazar una novedad con una orden, <code>doneAt</code> toma el
+          <code>startDate</code> de esa orden. No registra cuándo se resolvió la novedad, así que
+          no sirve para medir tiempos de respuesta; y cuando la orden se creó antes que la
+          novedad, la fecha de resolución queda por detrás de la de reporte.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Novedad #706, y contraste contra el histórico</span>
+          Novedad creada 17:17:43 · <code>doneAt</code> <b>17:15:00</b> ·
+          orden 5733 <code>startDate</code> <b>17:15:00</b><br>
+          Sobre 189 novedades resueltas donde se pudo comparar: <b>188 tienen
+          <code>doneAt</code> exactamente igual al <code>startDate</code> de su orden</b>, una
+          difiere.<br>
+          <b>63</b> novedades del histórico quedan con fecha de resolución anterior a su
+          propia creación.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Que <code>doneAt</code> registre el instante en que la novedad se resolvió. La fecha
+            de la orden ya viaja en la orden.
+          </p>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ============ LISTADOS Y PAGINACIÓN ============ -->
+  <section>
+    <div class="sec-head">
+      <h2>Listados y paginación</h2>
+      <span class="sec-count">4 puntos</span>
+    </div>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-11</span>
+        <span class="sev sev-high">Alta</span>
+      </div>
+      <div class="body-col">
+        <h3><code>includeDone=true</code> devuelve solo las resueltas, no todas</h3>
+        <p>
+          El nombre del parámetro sugiere «incluir además las resueltas». En la práctica el
+          listado devuelve exclusivamente las resueltas y omite las abiertas. Un integrador que
+          lo interprete por su nombre concluye que las novedades ausentes fueron borradas.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Recorrido completo del listado</span>
+          Devueltas: <b>380</b> novedades, todas con <code>isDone: true</code>, sobre un rango de
+          números 1 a 696.<br>
+          Ausentes: 316 números. Comprobamos tres uno por uno: <b>#694 y #695 existen y están
+          abiertas</b>; #692 responde 404.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Que devuelva abiertas y resueltas, o que el parámetro se llame según lo que hace
+            (<code>onlyDone</code>) y se documente.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-12</span>
+        <span class="sev sev-high">Alta</span>
+      </div>
+      <div class="body-col">
+        <h3>El header <code>X-NextPage</code> a veces omite los filtros de la petición original</h3>
+        <p>
+          En listados que exigen un rango de fechas, el enlace de la página siguiente llega a
+          veces sin esos parámetros. Al seguirlo tal cual, el servidor responde 409 porque falta
+          el rango que él mismo omitió. No es determinista: el mismo código funciona la mayoría
+          de los días.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Programaciones de mantenimiento, 1 de septiembre</span>
+          Páginas 1 a 12 con <code>dateToExecuteFrom</code> y <code>dateToExecuteTo</code>.<br>
+          Header de la página 12: <code>?page=13&amp;pageSize=50</code>, sin las fechas.<br>
+          Respuesta: <code>409 · «Must specify at least one date range»</code><br>
+          Seis sincronizaciones fallidas entre el 16 y el 31 de agosto por esta causa.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>Que el enlace de la página siguiente conserve siempre los parámetros de la consulta.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-13</span>
+        <span class="sev sev-med">Media</span>
+      </div>
+      <div class="body-col">
+        <h3>404 en la página siguiente a la última llena</h3>
+        <p>
+          Cuando el total de resultados es múltiplo exacto del tamaño de página, pedir la
+          siguiente devuelve 404 en lugar de una lista vacía. Obliga a tratar un 404 como fin de
+          recorrido, que es indistinguible de una ruta mal configurada.
+        </p>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>Lista vacía con 200, o un indicador de última página en la respuesta.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-14</span>
+        <span class="sev sev-med">Media</span>
+      </div>
+      <div class="body-col">
+        <h3>Los filtros del listado de novedades no acotan</h3>
+        <p>
+          <code>createdAtFrom</code> y <code>reportedAtFrom</code> se aceptan sin error y no
+          tienen efecto: el listado devuelve desde la primera novedad de 2022.
+          <code>reportedBy</code> devuelve un subconjunto que no incluye todas las novedades de
+          ese reportante. Sin filtros útiles hay que recorrer el listado completo cada vez.
+        </p>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>Que los filtros de fecha acoten, o que se rechacen con un error en vez de ignorarse.</p>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ============ DATOS ============ -->
+  <section>
+    <div class="sec-head">
+      <h2>Contenido de los datos</h2>
+      <span class="sec-count">4 puntos</span>
+    </div>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-15</span>
+        <span class="sev sev-med">Media</span>
+      </div>
+      <div class="body-col">
+        <h3>Los costos totales quedan en cero aunque la orden tenga repuestos</h3>
+        <p>
+          <code>totalCostParts</code> y <code>totalCostLabors</code> son los únicos campos de
+          costo del listado de órdenes, y llegan en cero incluso con ítems cargados. Nos llevó a
+          concluir que casi ninguna orden tenía repuestos, hasta que consultamos el detalle.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Contraste entre el listado y el detalle</span>
+          Sobre 3.365 órdenes, solo <b>10</b> declaran costo de repuestos distinto de cero.<br>
+          La orden 5619 publica <code>totalCostParts: 0</code> y su detalle tiene
+          <b>9 trabajos y 27 repuestos</b>.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Un conteo de trabajos y repuestos en el listado, para no tener que pedir el detalle
+            de cada orden solo para saber si tiene contenido.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-16</span>
+        <span class="sev sev-med">Media</span>
+      </div>
+      <div class="body-col">
+        <h3>La referencia del repuesto viene dentro del nombre y <code>code</code> llega vacío</h3>
+        <p>
+          El campo previsto para la referencia está vacío y la referencia viaja al final del
+          nombre, separada por un guion. Para leerla hay que partir una cadena de texto, que es
+          justamente lo que un campo dedicado evita.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Repuesto 24863 de la orden 5733</span>
+          <code>code: null</code><br>
+          <code>name: "CARCASA FILTRO AIRE - H0119202018A0"</code>
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>Que <code>code</code> traiga la referencia cuando el repuesto la tenga en el catálogo.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-17</span>
+        <span class="sev sev-med">Media</span>
+      </div>
+      <div class="body-col">
+        <h3>Las novedades se pueden borrar desde la interfaz pero no por API</h3>
+        <p>
+          Un <code>DELETE</code> sobre una novedad responde <code>405</code>, y la colección solo
+          expone crear, obtener y listar. Sin embargo desde la interfaz sí se eliminan: lo
+          confirmamos con novedades creadas por nosotros que hoy responden 404 por número. La
+          asimetría obliga a que una novedad creada por error se corrija a mano.
+        </p>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Poder anular o eliminar una novedad por API, con los mismos permisos que exige la
+            interfaz.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-20</span>
+        <span class="sev sev-high">Alta</span>
+      </div>
+      <div class="body-col">
+        <h3>Anular una orden borra sus trabajos y repuestos</h3>
+        <p>
+          Anular no marca la orden como anulada conservando su contenido: la vacía. Se pierde el
+          registro de lo que se había planeado o ejecutado antes de anularla, que es justamente
+          lo que se querría revisar para entender por qué se anuló.
+        </p>
+        <div class="ev">
+          <span class="ev-label">Orden 5733, antes y después de anularla</span>
+          Trabajos <b>2 → 0</b> &nbsp;·&nbsp; Repuestos <b>2 → 0</b> &nbsp;·&nbsp;
+          Total <b>139.200 → 0</b><br>
+          En el histórico, las <b>98</b> órdenes anuladas tienen todas costo cero, frente a 260
+          de 3.114 cerradas con costo.
+        </div>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Conservar trabajos y repuestos al anular, y que el estado <code>voided</code> haga el
+            trabajo de indicar que no aplican.
+          </p>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ============ DOCUMENTACIÓN ============ -->
+  <section>
+    <div class="sec-head">
+      <h2>Documentación</h2>
+      <span class="sec-count">1 punto</span>
+    </div>
+
+    <article class="find">
+      <div class="id-col">
+        <span class="fid">CF-18</span>
+        <span class="sev sev-med">Media</span>
+      </div>
+      <div class="body-col">
+        <h3>La referencia de la API no es legible sin navegador y parece desactualizada</h3>
+        <p>
+          <code>developer.cloudfleet.com</code> se arma con JavaScript en una sola vista, así que
+          no se puede consultar desde una terminal ni enlazar a una sección concreta. La última
+          entrada del historial de cambios que pudimos leer es de febrero de 2020, lo que deja la
+          duda de si hay eventos o endpoints posteriores sin reflejar.
+        </p>
+        <div class="ask">
+          <span class="ask-label">Pedimos</span>
+          <p>
+            Enlaces por sección y una nota de última actualización. Si la colección de Postman
+            está al día, publicarla también resolvería el punto.
+          </p>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <footer>
+    <p>
+      <strong>Cómo lo verificamos.</strong> Todo lo anterior sale de lecturas sobre la API en
+      producción con nuestra propia clave, más una prueba controlada de extremo a extremo con la
+      novedad #706 y la orden 5733 sobre un vehículo real. No modificamos datos ajenos y las
+      escrituras se limitaron a esa prueba.
+    </p>
+    <p>
+      <strong>Qué esperamos de la respuesta.</strong> CF-01 es el que más nos ayudaría a corto
+      plazo: si los webhooks se pueden habilitar, varios de los demás dejan de importar. CF-05 y
+      CF-09 son los que hoy nos obligan a soluciones indirectas dentro de nuestro producto.
+    </p>
+  </footer>
+
+</div>

@@ -1,0 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* === Marca (styles.md §2.1) === */
+    --brand-red: #ee2e2f;
+    --brand-black: #363534;
+    --brand-clear: #c3cac8;
+    --brand-gray: #354550;
+
+    /* === Acentos (styles.md §2.2) === */
+    --accent-lime: #b2e100;
+    --accent-cream: #eff0c8;
+    --accent-yellow: #ffb301;
+    --accent-blue: #185979;
+
+    /* === Neutros (styles.md §2.3) === */
+    --white: #ffffff;
+    --gray-50: #f8fafb;
+    --gray-100: #f1f5f9;
+    --gray-200: #e2e8f0;
+    --gray-700: #334155;
+    --gray-900: #0f172a;
+
+    /* === Tokens semánticos (estilo shadcn) === */
+    --background: var(--white);
+    --foreground: var(--brand-black);
+
+    --card: var(--white);
+    --card-foreground: var(--brand-black);
+
+    --popover: var(--white);
+    --popover-foreground: var(--brand-black);
+
+    --primary: var(--brand-red);
+    --primary-foreground: var(--white);
+
+    --secondary: var(--gray-50);
+    --secondary-foreground: var(--brand-black);
+
+    --muted: var(--gray-100);
+    --muted-foreground: var(--brand-gray);
+
+    --accent: var(--gray-100);
+    --accent-foreground: var(--brand-black);
+
+    --destructive: var(--brand-red);
+    --destructive-foreground: var(--white);
+
+    --border: var(--brand-clear);
+    --input: var(--brand-clear);
+    --ring: var(--accent-blue);
+
+    /* === Radius (styles.md §5.1) === */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --radius-pill: 9999px;
+    --radius: 12px;
+
+    /* === Sombras (styles.md §6) === */
+    --shadow-soft: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 10px rgba(16, 24, 40, 0.06);
+    --shadow-md: 0 10px 30px rgba(16, 24, 40, 0.14);
+
+    /* === Sidebar (custom) === */
+    --sidebar-background: var(--white);
+    --sidebar-foreground: var(--brand-black);
+    --sidebar-border: rgba(195, 202, 200, 0.95);
+    --sidebar-section: var(--brand-gray);
+    --sidebar-item-hover: var(--gray-50);
+    --sidebar-item-active-bg: rgba(238, 46, 47, 0.08);
+    --sidebar-item-active-fg: var(--brand-red);
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body {
+    min-height: 100%;
+  }
+
+  html {
+    background-color: #e2e7e4;
+  }
+
+  /* El degradado vive en un pseudoelemento fijo y no en `background-attachment:
+     fixed` sobre <html>: iOS Safari no soporta `fixed` y estira o repinta el
+     fondo con cada scroll. El resultado visual es el mismo. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(160deg, #f7f9f8 0%, #e9edeb 55%, #e2e7e4 100%);
+  }
+
+  body {
+    color: var(--foreground);
+    min-height: 100dvh;
+    background: transparent;
+    font-family: var(--font-manrope), 'Segoe UI', 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-raleway), 'Segoe UI', sans-serif;
+    color: var(--brand-black);
+  }
+
+  /* Scrollbars (styles.md §11) */
+  .chat-scroll::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  .chat-scroll::-webkit-scrollbar-thumb {
+    background: rgba(53, 69, 80, 0.38);
+    border-radius: 9999px;
+  }
+  .chat-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Mapa de calor de ralentí: el mapa base se desatura para que el color del
+   calor sea el único color de la escena y la corona verde/amarilla se lea
+   sobre él. Sólo afecta a las teselas de ese mapa. */
+.ralenti-heat-tiles {
+  filter: grayscale(0.85) brightness(1.04);
+}
